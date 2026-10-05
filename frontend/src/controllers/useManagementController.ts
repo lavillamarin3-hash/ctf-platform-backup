@@ -16,6 +16,8 @@ import {
 } from "../config";
 import { mapBackendLaboratory, mapBackendVM } from "../components/laboratory";
 import { FlagDraft, hasFlagDraftChanges } from "../lib/challengeFlagChanges";
+import { useRankingLive } from "../lib/useRankingLive";
+import { BEGINNER_CHALLENGE_DRAFTS, isLegacyReconDraft, legacyPublishedCodes } from "../lib/pilotChallenges";
 
 const defaultUserFunction = (role: User["role"]): UserFunction =>
   role === "admin"
@@ -62,6 +64,8 @@ export function useManagementController({
   const [challenges, setChallenges] =
     useState<Challenge[]>([]);
 
+  const [catalogActionBusy, setCatalogActionBusy] = useState(false);
+
   const [users, setUsers] =
     useState<ManagedUser[]>([]);
 
@@ -79,6 +83,8 @@ export function useManagementController({
 
   const [ranking, setRanking] =
     useState<RankingRow[]>([]);
+
+  useRankingLive(setRanking);
 
   const [groups, setGroups] =
     useState<import("../api").StudentGroup[]>([]);
@@ -484,6 +490,77 @@ export function useManagementController({
     }
   };
 
+  const archiveLegacyChallenges = async () => {
+    if (!isAdmin || catalogActionBusy) return;
+    const codes = legacyPublishedCodes(challenges);
+    if (!codes.length) {
+      setMessage("No hay retos anteriores publicados que desactivar.");
+      return;
+    }
+    if (!window.confirm(`Se desactivarán ${codes.length} retos y se conservarán sus resultados. LAB-01 seguirá publicado. Cierra primero todas las corridas activas.\n\n${codes.join(", ")}\n\n¿Continuar?`)) return;
+    setCatalogActionBusy(true);
+    const archived: string[] = [];
+    const failed: string[] = [];
+    try {
+      for (const code of codes) {
+        try {
+          await api.archiveChallenge(code);
+          archived.push(code);
+        } catch {
+          failed.push(code);
+        }
+      }
+      await load();
+      setMessage(`${archived.length} retos desactivados sin borrar historial.${failed.length ? ` No se modificaron: ${failed.join(", ")}. Cierra sus corridas activas y reintenta.` : ""}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el catálogo.");
+    } finally {
+      setCatalogActionBusy(false);
+    }
+  };
+
+  const createBeginnerChallengeDrafts = async () => {
+    if (!isAdmin || catalogActionBusy) return;
+    if (!window.confirm("Se crearán tres retos básicos con flags dinámicas como borradores sin asignaciones: dos en la VM Linux y uno Kali → Linux. Antes de publicar, comprueba acceso, servicio didáctico, inyección y limpieza reales. ¿Continuar?")) return;
+    setCatalogActionBusy(true);
+    const created: string[] = [];
+    const updated: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+    try {
+      for (const item of BEGINNER_CHALLENGE_DRAFTS) {
+        const code = item.challenge.code;
+        const existing = challenges.find((challenge) => challenge.code === code);
+        if (existing && isLegacyReconDraft(existing)) {
+          try {
+            await api.updateChallenge(code, item.challenge);
+            updated.push(code);
+          } catch {
+            failed.push(code);
+          }
+          continue;
+        }
+        if (existing) {
+          skipped.push(code);
+          continue;
+        }
+        try {
+          await api.createChallenge(item.challenge);
+          await api.createFlag(code, item.flag);
+          created.push(code);
+        } catch {
+          failed.push(code);
+        }
+      }
+      await load();
+      setMessage(`${created.length} borradores dinámicos creados; ${updated.length} borrador legado adaptado; ${skipped.length} ya existían.${failed.length ? ` Revisa manualmente: ${failed.join(", ")}.` : ""} Ninguno se publicó ni asignó automáticamente.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar el catálogo.");
+    } finally {
+      setCatalogActionBusy(false);
+    }
+  };
+
   const changeUser = async (
     id: number,
     changes: Partial<
@@ -750,7 +827,7 @@ export function useManagementController({
     user,
     panelRole,
     view, setView, menuOpen, setMenuOpen,
-    challenges, users, setUsers, userSearch, setUserSearch,
+    challenges, catalogActionBusy, users, setUsers, userSearch, setUserSearch,
     userRoleFilter, setUserRoleFilter,
     userFormOpen, setUserFormOpen, userEditing, setUserEditing,
     ranking, groups, progressRows, setProgressRows, message, setMessage,
@@ -773,7 +850,8 @@ export function useManagementController({
     saveGuacamoleUser, deleteGuacamoleManagedUser,
     saveGuacamoleConnection, deleteGuacamoleManagedConnection,
     openGuacamolePermissions, saveGuacamolePermissions,
-    saveChallenge, archive, changeUser, saveManagedUser, deleteManagedUser,
+    saveChallenge, archive, archiveLegacyChallenges, createBeginnerChallengeDrafts,
+    changeUser, saveManagedUser, deleteManagedUser,
     saveLaboratory, removeLaboratory, saveVM, removeVM,
   };
 }

@@ -39,15 +39,20 @@ class TerminalSessions:
     def ticket_key(ticket: str) -> str:
         return "ctf:terminal:ticket:" + hashlib.sha256(ticket.encode()).hexdigest()
 
-    async def issue(self, run_id: int, user_id: int, protocol: str | None = None) -> str:
+    async def issue(self, run_id: int, user_id: int, protocol: str | None = None,
+                    target: str = "victim") -> str:
         if await self.is_closed(run_id):
             raise ValueError("El laboratorio se está cerrando")
+        if target not in {"victim", "attacker"} or (target == "attacker" and protocol is None):
+            raise ValueError("Destino no permitido")
         ticket = secrets.token_urlsafe(32)
         payload = {"run_id": run_id, "user_id": user_id}
         if protocol is not None:
             if protocol not in {"ssh", "rdp"}:
                 raise ValueError("Protocolo no permitido")
             payload["protocol"] = protocol
+        if target == "attacker":
+            payload["target"] = target
         await self.redis.set(self.ticket_key(ticket), json.dumps(payload), ex=60)
         return ticket
 

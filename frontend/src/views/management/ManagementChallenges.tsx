@@ -6,18 +6,20 @@
 import { createElement } from "react";
 import { difficultyStyle } from "../../config";
 import { inferCategory } from "../../components/challenges";
+import { legacyPublishedCodes } from "../../lib/pilotChallenges";
 import type { ManagementController } from "../../controllers/useManagementController";
 
 export function ManagementChallenges({ controller }: { controller: ManagementController }) {
   // Estado y datos que esta vista presenta.
   const {
-    challenges, published, draft, points,
+    challenges, published, draft, points, isAdmin, catalogActionBusy,
   } = controller;
 
   // Acciones proporcionadas por el controlador.
   const {
-    load, setEditing, setCreating, archive,
+    load, setEditing, setCreating, archive, archiveLegacyChallenges, createBeginnerChallengeDrafts,
   } = controller;
+  const legacyCount = legacyPublishedCodes(challenges).length;
   return (
 <section>
     <div className="page-heading">
@@ -62,6 +64,15 @@ export function ManagementChallenges({ controller }: { controller: ManagementCon
         </button>
       </div>
     </div>
+
+    {isAdmin && <div className="glass-panel" style={{ marginBottom: "1rem", padding: "1rem" }}>
+      <span className="eyebrow accent">CATÁLOGO OPERATIVO</span>
+      <p>Conserva LAB-01 y el historial. Los otros retos publicados se pueden desactivar sin borrar resultados. Los ejercicios Linux y Kali → Linux se crean como borradores con flag dinámica; se publican solo después de probarlos en las VM reales.</p>
+      <div className="row-actions">
+        <button type="button" className="secondary-action" disabled={catalogActionBusy || legacyCount === 0} onClick={() => void archiveLegacyChallenges()}>Desactivar {legacyCount} retos anteriores</button>
+        <button type="button" className="secondary-action" disabled={catalogActionBusy} onClick={() => void createBeginnerChallengeDrafts()}>Crear 3 borradores de práctica</button>
+      </div>
+    </div>}
 
     <div className="table-panel glass-panel">
       <table>

@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -160,12 +162,24 @@ class ChallengeCreate(BaseModel):
     description: str = Field(min_length=10, max_length=8000)
     instructions: str = Field(default="", max_length=8000)
     difficulty: str = Field(pattern=r"^(Básico|Medio|Avanzado)$")
-    category: str = Field(pattern=r"^(WEB|CRIPTROGRAFÍA|CRIPTOGRAFÍA|FORENSE|REVERSING|PWN / EXPLOITING|OSINT|ESTEGANOGRAFÍA|MISC)$")
+    category: str = Field(min_length=2, max_length=48)
     scenario: str | None = Field(default=None, max_length=64)
     mitre_technique: str = Field(min_length=3, max_length=64)
     asset_references: list[str] = Field(min_length=1, max_length=8)
     points: int = Field(ge=1, le=10000)
     is_published: bool = True
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        # La categoría se guarda en challenges.category (VARCHAR(48)); no se
+        # requiere una tabla nueva. Conservamos el formato histórico en mayúsculas.
+        if re.search(r"[\r\n\t]", value):
+            raise ValueError("La categoría no puede contener saltos de línea ni tabulaciones.")
+        normalized = " ".join(value.strip().split()).upper()
+        if not re.fullmatch(r"[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9 /_-]{1,47}", normalized):
+            raise ValueError("La categoría debe tener de 2 a 48 caracteres: letras, números, espacios, /, _ o -.")
+        return normalized
 
 
 class FlagCreate(BaseModel):

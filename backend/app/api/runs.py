@@ -29,6 +29,13 @@ from ..domain.instances.states import InstanceState
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+ATTACK_CHALLENGE_CODE = "ESC-01-RECON"
+
+
+def _player_launch_url(challenge: Challenge, assignment: RemoteAccessAssignment | None, *, player: bool = True) -> str | None:
+    # El acceso a ESC se emite únicamente mediante el ticket de Kali del puente
+    # WebSocket; la conexión SSH de la víctima es solo para la API/inyector.
+    return assignment.launch_url if assignment and player and challenge.code != ATTACK_CHALLENGE_CODE else None
 
 
 def _view_from_run(run: ChallengeRun, challenge: Challenge, assignment: RemoteAccessAssignment | None, vm=None, protocol: str | None = None, *, player: bool = True) -> RunView:
@@ -38,7 +45,7 @@ def _view_from_run(run: ChallengeRun, challenge: Challenge, assignment: RemoteAc
         status=run.status,
         started_at=run.started_at,
         expires_at=run.expires_at,
-        launch_url=assignment.launch_url if assignment and player else None,
+        launch_url=_player_launch_url(challenge, assignment, player=player),
         connection_state=assignment.status if assignment else None,
         workspace_strategy=run.workspace_strategy,
         target_vm_name=vm.name if vm else None,
@@ -389,8 +396,13 @@ async def start_challenge(code: str, request: Request, user=Depends(require_role
             laboratory_code = target_lab.code if target_lab else None
             if target_vm and guac_connection:
                 try:
-                    target_url = await request.app.state.guacamole.direct_connection_url(guac_connection.identifier)
-                    target_protocol = guac_connection.protocol
+                    if challenge.code == ATTACK_CHALLENGE_CODE:
+                        # Columna existente NOT NULL: guardar un destino inocuo,
+                        # nunca el enlace directo a la víctima.
+                        target_url = f"{settings.guacamole_base_url.rstrip('/')}/#/home"
+                    else:
+                        target_url = await request.app.state.guacamole.direct_connection_url(guac_connection.identifier)
+                        target_protocol = guac_connection.protocol
                     external_reference = f"vm:{target_vm.id}:connection:{guac_connection.identifier}:run:{run.id}"
                 except RuntimeError as exc:
                     raise HTTPException(status_code=503, detail="No se pudo preparar el acceso al laboratorio") from exc
@@ -467,15 +479,16 @@ async def start_challenge(code: str, request: Request, user=Depends(require_role
 
                 await session.flush()
 
-                # Los permisos se conceden cuando la reserva y el pool ya son
-                # nuestros; un intento rechazado nunca obtiene acceso a otra VM.
-                stage = "guacamole_permissions"
-                guacamole_access_preexisting = await _sync_player_guacamole_permissions(
-                    request, user.id, guac_connection.identifier
-                )
-                temporary_permission = not guacamole_access_preexisting
-                instance.guacamole_access_granted = True
-                instance.guacamole_access_preexisting = guacamole_access_preexisting
+                # ESC inyecta en la víctima, pero el alumno trabaja desde Kali.
+                # Nunca conceder READ de la conexión víctima por esta corrida.
+                if challenge.code != ATTACK_CHALLENGE_CODE:
+                    stage = "guacamole_permissions"
+                    guacamole_access_preexisting = await _sync_player_guacamole_permissions(
+                        request, user.id, guac_connection.identifier
+                    )
+                    temporary_permission = not guacamole_access_preexisting
+                    instance.guacamole_access_granted = True
+                    instance.guacamole_access_preexisting = guacamole_access_preexisting
 
             stage = "flag_injection"
             if dynamic_flags:
@@ -506,7 +519,7 @@ async def start_challenge(code: str, request: Request, user=Depends(require_role
                 status=run.status,
                 started_at=run.started_at,
                 expires_at=expires_at,
-                launch_url=target_url,
+                launch_url=_player_launch_url(challenge, assignment),
                 connection_state="ready",
                 workspace_strategy=run.workspace_strategy,
                 target_vm_name=target_vm.name if target_vm else None,
@@ -605,7 +618,7 @@ async def list_runs(request: Request, user=Depends(get_current_user)):
                     status=state,
                     started_at=run.started_at,
                     expires_at=run.expires_at,
-                    launch_url=assignment.launch_url if assignment and user.role == "player" else None,
+                    launch_url=_player_launch_url(challenge, assignment, player=user.role == "player"),
                     connection_state=assignment.status if assignment else None,
                     workspace_strategy=run.workspace_strategy,
                     target_vm_name=display_vm.name if display_vm else None,

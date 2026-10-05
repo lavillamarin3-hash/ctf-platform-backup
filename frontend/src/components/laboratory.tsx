@@ -242,7 +242,8 @@ export function VMForm({
 
   const usedIps = laboratory.vms.map((item) => item.ip).filter(Boolean);
   const availableIps = NETWORK_IPS[networkRole].filter((candidate) => !usedIps.includes(candidate) || candidate === initial?.ip);
-  const selectedIp = ip || availableIps[0] || "";
+  // "Sin asignar" es una elección explícita: no tomar otra IP al guardar.
+  const selectedIp = ip;
   // La red real actual del laboratorio es 192.168.146.0/24 para ambos roles.
   const subnet = "192.168.146.0/24";
   const segmentLabel = LAB_NETWORK_METADATA[networkRole].segment;

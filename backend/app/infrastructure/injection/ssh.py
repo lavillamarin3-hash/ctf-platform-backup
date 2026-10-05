@@ -12,6 +12,8 @@ from pathlib import Path
 
 from ...core import get_settings
 
+ESC_EVIDENCE_PATH = "/opt/ctf/ESC-01-RECON/flag.txt"
+
 
 class FlagInjectionError(RuntimeError):
     """Error controlado al no poder confirmar una operación de inyección."""
@@ -76,6 +78,13 @@ class SSHFlagInjector:
         await asyncio.to_thread(self._run_sync, ip, path, None, clear=True)
 
     def _run_sync(self, ip: str, path: str, value: str | None, *, clear: bool, probe_auth: bool = False) -> None:
+        private_evidence = path == ESC_EVIDENCE_PATH and not clear and not probe_auth
+        if private_evidence and (
+            not value
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+            or len(value.encode("utf-8")) > 511
+        ):
+            raise FlagInjectionError("La evidencia de ESC debe ser una línea corta sin caracteres de control")
         try:
             import paramiko
         except ImportError as exc:  # pragma: no cover - depende de la imagen de backend
@@ -121,20 +130,37 @@ class SSHFlagInjector:
                     f"sudo -n {shlex.quote(self.settings.flag_injector_remote_script)} "
                     f"--path {shlex.quote(path)} --clear"
                 )
+            elif private_evidence:
+                remote_command = (
+                    f"sudo -n {shlex.quote(self.settings.flag_injector_remote_script)} "
+                    f"--path {shlex.quote(path)} --stdin"
+                )
             else:
                 remote_command = (
                     f"sudo -n {shlex.quote(self.settings.flag_injector_remote_script)} "
                     f"--path {shlex.quote(path)} --flag {shlex.quote(value or '')}"
                 )
-            _, stdout, stderr = client.exec_command(remote_command, timeout=self.settings.flag_injector_command_timeout)
+            stdin, stdout, stderr = client.exec_command(remote_command, timeout=self.settings.flag_injector_command_timeout)
+            if private_evidence:
+                # Paramiko envía la evidencia por el canal cifrado y luego EOF.
+                # El comando remoto, sus argumentos y los errores nunca la contienen.
+                stdin.write(value + "\n")
+                stdin.flush()
+                stdin.channel.shutdown_write()
             exit_code = stdout.channel.recv_exit_status()
             error_text = stderr.read().decode("utf-8", errors="replace").strip()
             if exit_code != 0:
-                safe_detail = error_text or f"El script remoto devolvió código {exit_code}"
+                safe_detail = (
+                    "El script remoto no confirmó la inyección de evidencia"
+                    if private_evidence
+                    else error_text or f"El script remoto devolvió código {exit_code}"
+                )
                 raise FlagInjectionError(safe_detail)
         except FlagInjectionError:
             raise
         except Exception as exc:
+            if private_evidence:
+                raise FlagInjectionError("No se pudo inyectar la evidencia por SSH") from None
             raise FlagInjectionError(f"No se pudo conectar o ejecutar la operación SSH en {ip}: {exc}") from exc
         finally:
             client.close()

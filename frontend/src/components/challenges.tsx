@@ -13,6 +13,7 @@ import { needsLaboratoryCleanup } from "../lib/laboratoryRunState";
 import { ChallengeLearningResources } from "./ChallengeLearningResources";
 import { ChallengeResource, MAX_CHALLENGE_RESOURCES, parseChallengeResources, serializeChallengeResources } from "../lib/challengeResources";
 import { initialFlagTemplate } from "../lib/challengeFlagChanges";
+import { challengeCategoryOptions, isValidChallengeCategory, normalizeChallengeCategory } from "../lib/challengeCategories";
 
 export function challengeInternalLevel(
   difficulty: Challenge["difficulty"]
@@ -229,6 +230,7 @@ export function ChallengeForm({
   onSave,
   laboratories = [],
   groups = [],
+  categories = [],
 }: {
   initial: Challenge | null;
   onClose: () => void;
@@ -262,11 +264,18 @@ export function ChallengeForm({
     code: string;
     challenges: Array<{ challenge_id: number; code: string; name: string }>;
   }>;
+  categories?: string[];
 }) {
   const firstAsset = initial?.asset_references?.[0] ?? "";
   const [code, setCode] = useState(initial?.code ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [category, setCategory] = useState(initial?.category ?? "MISC");
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const categoryOptions = useMemo(
+    () => challengeCategoryOptions(Object.keys(categoryMeta), categories, category),
+    [categories, category]
+  );
   const [difficulty, setDifficulty] = useState<Challenge["difficulty"]>(initial?.difficulty ?? "Básico");
   const [scenario, setScenario] = useState(initial?.scenario ?? "");
   const [mitre, setMitre] = useState(initial?.mitre_technique ?? "—");
@@ -361,6 +370,10 @@ export function ChallengeForm({
     setBusy(true);
     setError(null);
     try {
+      const selectedCategory = addingCategory ? normalizeChallengeCategory(newCategory) : category;
+      if (!isValidChallengeCategory(selectedCategory)) {
+        throw new Error("La categoría debe tener entre 2 y 48 caracteres: letras, números, espacios, /, _ o -.");
+      }
       const references = [primaryAsset, ...assets.split(",").map((value) => value.trim()).filter(Boolean)];
       const uniqueReferences = [...new Set(references.filter(Boolean))];
       if (!uniqueReferences.length) throw new Error("Selecciona al menos un laboratorio o una VM.");
@@ -368,7 +381,7 @@ export function ChallengeForm({
         {
           code: code.trim().toUpperCase(),
           name: name.trim(),
-          category,
+          category: selectedCategory,
           difficulty,
           scenario: scenario || null,
           mitre_technique: mitre || "—",
@@ -406,7 +419,24 @@ export function ChallengeForm({
         <div className="form-grid">
           <label>Código<input value={code} onChange={(event) => setCode(event.target.value)} disabled={Boolean(initial)} required /></label>
           <label>Nombre<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-          <label>Categoría<select value={category} onChange={(event) => setCategory(event.target.value)}>{Object.keys(categoryMeta).map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>Categoría
+            <select value={addingCategory ? "__new__" : category} onChange={(event) => {
+              if (event.target.value === "__new__") {
+                setAddingCategory(true);
+                setNewCategory("");
+              } else {
+                setAddingCategory(false);
+                setCategory(event.target.value);
+              }
+            }}>
+              {categoryOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+              <option value="__new__">+ Nueva categoría…</option>
+            </select>
+          </label>
+          {addingCategory && <label>Nueva categoría
+            <input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} maxLength={48} required placeholder="Ej.: REDES Y DEFENSA" />
+            <small className="field-help">Se guardará al crear o editar este reto y luego aparecerá en la lista.</small>
+          </label>}
           <label>Dificultad<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Challenge["difficulty"])}><option>Básico</option><option>Medio</option><option>Avanzado</option></select></label>
           <label>Escenario<input value={scenario} onChange={(event) => setScenario(event.target.value)} /></label>
           <label>MITRE<input value={mitre} onChange={(event) => setMitre(event.target.value)} /></label>

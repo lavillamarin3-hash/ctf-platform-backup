@@ -25,8 +25,8 @@ export function PlayerRanking({ controller, user }: { controller: PlayerControll
                   </h1>
 
                   <p>
-                    Clasificación actualizada
-                    en tiempo real.
+                    Más puntos dan mejor puesto. En empate, va primero quien alcanzó esa puntuación antes.
+                    La clasificación se actualiza al completar retos.
                   </p>
                 </div>
               </div>

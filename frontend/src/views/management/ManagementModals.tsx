@@ -13,7 +13,7 @@ import { LaboratoryForm, VMForm } from "../../components/laboratory";
 export function ManagementModals({ controller }: { controller: ManagementController }) {
   const c = controller;
   return <>
-    {c.creating && <ChallengeForm initial={c.editing} laboratories={c.laboratories} groups={c.groups} onClose={() => { c.setCreating(false); c.setEditing(null); }} onSave={c.saveChallenge} />}
+    {c.creating && <ChallengeForm initial={c.editing} laboratories={c.laboratories} groups={c.groups} categories={c.challenges.map((challenge) => challenge.category)} onClose={() => { c.setCreating(false); c.setEditing(null); }} onSave={c.saveChallenge} />}
     {c.userFormOpen && c.isAdmin && <UserForm initial={c.userEditing} onClose={() => { c.setUserFormOpen(false); c.setUserEditing(null); }} onSave={c.saveManagedUser} />}
     {c.labFormOpen && <LaboratoryForm initial={c.labEditing} onClose={() => { c.setLabFormOpen(false); c.setLabEditing(null); }} onSave={c.saveLaboratory} />}
     {c.vmFormOpen && c.selectedLab && <VMForm laboratory={c.selectedLab} initial={c.vmEditing} onClose={() => { c.setVmFormOpen(false); c.setVmEditing(null); }} onSave={c.saveVM} guacamoleConnections={c.guacamoleConnections} />}

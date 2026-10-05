@@ -23,7 +23,7 @@ export function ManagementRanking({ controller }: { controller: ManagementContro
       <div>
         <span className="eyebrow accent">COMPETENCIA</span>
         <h1>Ranking general</h1>
-        <p>Clasificación calculada con los usuarios reales y los puntos obtenidos en los retos completados.</p>
+        <p>Más puntos dan mejor puesto. En empate, va primero quien alcanzó esa puntuación antes. Se actualiza al completar retos.</p>
       </div>
       <div className="page-actions">
         <button className="secondary-action" onClick={() => void load()}>Actualizar</button>

@@ -43,21 +43,22 @@ SEED_CHALLENGES = [
         ],
     },
     {
-        # Borrador: no publicar hasta disponer de terminal atacante Kali
-        # autorizada y servicio didáctico verificado en la víctima.
+        # Borrador: no publicar hasta verificar acceso Kali, servicio didáctico,
+        # inyección dinámica y limpieza física en las dos VMs reales.
         "code": "ESC-01-RECON",
         "name": "Descubre el servicio de evidencia",
         "description": "Desde Kali identifica un servicio de práctica en la VM Linux víctima y recupera su evidencia dinámica.",
         "instructions": (
-            "Escenario reservado para 192.168.146.134 (atacante) y 192.168.146.137 (víctima). "
-            "El instructor debe habilitar primero el acceso a Kali, el servicio didáctico y la captura de red. "
-            "No pruebes IPs ni puertos fuera del laboratorio asignado."
+            "Desde la conexión Kali atacante (192.168.146.134), examina únicamente el servicio "
+            "didáctico de 192.168.146.137 en el puerto 18081. Escanea solo 22 y 18081 y solicita "
+            "http://192.168.146.137:18081/evidence. Copia la evidencia dinámica, envíala y cierra "
+            "el laboratorio. El instructor debe verificar el servicio antes de publicar."
         ),
         "difficulty": "Básico",
         "category": "MISC",
         "scenario": "ESC-01-RECON",
         "mitre_technique": "T1046 — Network Service Scanning",
-        "asset_references": ["LAB-LNXVICT", "192.168.146.137"],
+        "asset_references": ["LAB-LNXVICT", "LAB-KALI"],
         "points": 100,
         "is_published": False,
         "flag_specs": [

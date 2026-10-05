@@ -149,7 +149,13 @@ async def ranking_rows(session_factory) -> list[dict]:
             .outerjoin(ChallengeCompletion, ChallengeCompletion.user_id == User.id)
             .where(User.role == "player", User.is_active.is_(True))
             .group_by(User.id, User.username)
-            .order_by(func.coalesce(func.sum(ChallengeCompletion.awarded_points), 0).desc(), func.min(ChallengeCompletion.completed_at).asc().nullslast(), User.username.asc())
+            # El puntaje decide primero. En empate, gana quien alcanzó ese
+            # puntaje antes (su última finalización), no su primera flag.
+            .order_by(
+                func.coalesce(func.sum(ChallengeCompletion.awarded_points), 0).desc(),
+                func.max(ChallengeCompletion.completed_at).asc().nullslast(),
+                User.username.asc(),
+            )
         )
         data = (await session.execute(statement)).all()
         return [

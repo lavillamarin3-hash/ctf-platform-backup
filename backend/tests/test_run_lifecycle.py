@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from app.api import runs
 from app.core import now_utc, verify_password
 from app.domain.instances.states import InstanceState
-from app.models import Challenge, ChallengeCompletion, ChallengeFlag, ChallengeInstance, ChallengeRun, ChallengeRunFlag, User, VMAsset, Laboratory
+from app.models import Challenge, ChallengeCompletion, ChallengeFlag, ChallengeInstance, ChallengeRun, ChallengeRunFlag, RemoteAccessAssignment, User, VMAsset, Laboratory
 from app.schemas import SubmissionRequest
 from app.services.dynamic_flags import DynamicFlagRuntime
 from app.services.lab_lock import (
@@ -360,6 +360,55 @@ class RunLifecycleTests(unittest.IsolatedAsyncioTestCase):
         await runs.close_run(started.id, self.request(close_session), self.user)
         self.assertNotIn(path, self.injector.files)
         self.assertIn(path, self.injector.cleared)
+
+    async def test_esc_evidence_path_and_cleanup_do_not_touch_lab01(self):
+        runtime = DynamicFlagRuntime(self.injector)
+        session = MemorySession()
+        esc_flag = ChallengeFlag(id=12, mode="dynamic", flag_order=1, is_active=True,
+                                 template="FLAG{esc-01_{{USER}}_{{RUN_ID}}_{{RAND}}}")
+        esc = Challenge(id=2, code="ESC-01-RECON", flags=[esc_flag])
+        lab_path = (self.vm.ip_address, "/opt/ctf/flag.txt")
+        esc_path = (self.vm.ip_address, "/opt/ctf/ESC-01-RECON/flag.txt")
+
+        await runtime.prepare(session, self.challenge, SimpleNamespace(id=101), self.user.username, self.vm)
+        await runtime.prepare(session, esc, SimpleNamespace(id=102), self.user.username, self.vm)
+        self.assertEqual(set(self.injector.files), {lab_path, esc_path})
+
+        await runtime.cleanup(session, 102, esc, self.vm)
+        self.assertEqual(set(self.injector.files), {lab_path})
+        self.assertEqual(self.injector.cleared[-1], esc_path)
+        await runtime.cleanup(session, 101, self.challenge, self.vm)
+        self.assertEqual(self.injector.files, {})
+
+    async def test_esc_start_never_grants_victim_read_or_exposes_its_launch_url(self):
+        self.challenge.code = "ESC-01-RECON"
+        self.challenge.id = 2
+        self.settings.guacamole_base_url = "https://guacamole.test"
+        session = MemorySession([self.challenge, None, None], objects=self.objects)
+        with patch.object(self.guacamole, "direct_connection_url", new=AsyncMock(
+            side_effect=AssertionError("No debe generar enlace directo a la víctima")
+        )):
+            result = await runs.start_challenge(self.challenge.code, self.request(session), self.user)
+        assignment = next(item for item in session.added if isinstance(item, RemoteAccessAssignment))
+        instance = next(item for item in session.added if isinstance(item, ChallengeInstance))
+        self.assertIsNone(result.launch_url)
+        self.assertEqual(assignment.launch_url, "https://guacamole.test/#/home")
+        self.assertNotIn("#/client/", assignment.launch_url)
+        self.assertIsNone(result.target_protocol)
+        self.assertEqual(self.guacamole.patches, [])
+        self.assertFalse(instance.guacamole_access_granted)
+        self.assertFalse(instance.guacamole_access_preexisting)
+        self.assertEqual(runs._player_launch_url(self.challenge, self.active_run().assignment), None)
+        self.assertEqual(len(self.injector.injected), 1)
+
+    async def test_esc_rejects_two_dynamic_flags_before_injection(self):
+        runtime = DynamicFlagRuntime(self.injector)
+        other = ChallengeFlag(id=12, mode="dynamic", flag_order=2, is_active=True,
+                              template="FLAG{esc-02_{{USER}}_{{RUN_ID}}_{{RAND}}}")
+        esc = Challenge(id=2, code="ESC-01-RECON", flags=[self.flag, other])
+        with self.assertRaisesRegex(ValueError, "una sola flag"):
+            await runtime.prepare(MemorySession(), esc, SimpleNamespace(id=102), self.user.username, self.vm)
+        self.assertEqual(self.injector.injected, [])
 
     async def test_opt_in_code_path_rollback_cleans_only_that_path(self):
         self.settings.flag_injector_flag_path = "/opt/ctf/{{CODE}}/flag.txt"

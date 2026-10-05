@@ -90,7 +90,7 @@ export function LaboratoryRunWorkspace({ run, onClose, onSubmit }: {
     </header>
     <div className="laboratory-workspace-grid">
       {expired ? <section className="embedded-terminal-panel terminal-integration-notice"><h3>El laboratorio ha expirado</h3><p>La conexión remota se desconectó. La evidencia dinámica se limpia cuando corresponde; puedes reintentar el cierre si aparece un error.</p></section>
-        : <GuacamoleTerminal runId={run.id} preferredProtocol={run.target_protocol} onClipboard={(text) => { setSelection(text); setNotice({ kind: "success", message: "Selección recibida de la conexión. Pulsa Usar selección para preparar el envío." }); }} />}
+        : <GuacamoleTerminal key={run.id} runId={run.id} preferredProtocol={run.target_protocol} attackerOnly={run.challenge_code === "ESC-01-RECON"} onClipboard={(text) => { setSelection(text); setNotice({ kind: "success", message: "Selección recibida de la conexión. Pulsa Usar selección para preparar el envío." }); }} />}
       <form className="laboratory-flag-workspace" onSubmit={submit}>
         <div><span className="eyebrow accent">BLOC DE NOTAS Y FLAG</span><h3>Investiga, copia y valida</h3><p>Notas privadas de esta pestaña. Se eliminan al cerrar la corrida o salir de tu cuenta.</p></div>
         <label className="lab-notes-label" htmlFor={`lab-notes-${run.id}`}>Notas del laboratorio</label>

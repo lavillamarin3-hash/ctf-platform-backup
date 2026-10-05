@@ -1,9 +1,19 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, request } from "../../services/api/client";
+import { fitRdpScale } from "../../lib/rdpDisplaySizing";
+import { selectTerminalConnection } from "../../lib/terminalConnectionOptions";
+import type { TerminalProtocol as Protocol, TerminalTarget as Target } from "../../lib/terminalConnectionOptions";
 
 type Stream = { sendAck: (message: string, code: number) => void };
+type Display = {
+  getElement: () => HTMLElement;
+  getWidth: () => number;
+  getHeight: () => number;
+  scale: (n: number) => void;
+  onresize: ((width: number, height: number) => void) | null;
+};
 type Client = {
-  getDisplay: () => { getElement: () => HTMLElement; scale: (n: number) => void };
+  getDisplay: () => Display;
   connect: (data: string) => void; disconnect: () => void;
   sendSize: (width: number, height: number) => void;
   sendKeyEvent: (pressed: number, keysym: number) => void;
@@ -41,7 +51,6 @@ function loadClient(): Promise<Namespace> {
   return libraryPromise;
 }
 type State = "loading" | "connected" | "auth" | "error" | "disconnected";
-type Protocol = "ssh" | "rdp";
 const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // La caja externa permanece estable aunque Guacamole agregue/quiete scrollbars.
@@ -53,9 +62,10 @@ function terminalDimensions(panel: HTMLElement, scale: number) {
   };
 }
 
-export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
+export function GuacamoleTerminal({ runId, preferredProtocol, attackerOnly = false, onClipboard }: {
   runId: number;
   preferredProtocol?: string | null;
+  attackerOnly?: boolean;
   onClipboard: (text: string) => void;
 }) {
   const terminalRef = useRef<HTMLElement>(null);
@@ -69,32 +79,49 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
   const [attempt, setAttempt] = useState(0);
   const [password, setPassword] = useState("");
   const [authenticating, setAuthenticating] = useState(false);
-  const [zoom, setZoom] = useState(1.25);
+  const [sshZoom, setSshZoom] = useState(1.25);
+  const [rdpZoom, setRdpZoom] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
   const [protocols, setProtocols] = useState<Protocol[] | null>(null);
+  const [attackerProtocols, setAttackerProtocols] = useState<Protocol[]>([]);
+  const [target, setTarget] = useState<Target>(attackerOnly ? "attacker" : "victim");
   const [protocol, setProtocol] = useState<Protocol | null>(null);
   const [optionsError, setOptionsError] = useState("");
   const [optionsAttempt, setOptionsAttempt] = useState(0);
+  const zoom = protocol === "rdp" ? rdpZoom : sshZoom;
   const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const applyScaleRef = useRef<(() => void) | null>(null);
   const scheduleSizeRef = useRef<(() => void) | null>(null);
-  const changeZoom = (direction: -1 | 1) => setZoom((current) => ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(current) + direction))]);
+  const changeZoom = (direction: -1 | 1) => {
+    const update = (current: number) => ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(current) + direction))];
+    if (protocol === "rdp") setRdpZoom(update);
+    else setSshZoom(update);
+  };
 
   useEffect(() => {
     let disposed = false;
-    setProtocols(null); setProtocol(null); setOptionsError(""); setState("loading");
-    void request<{ protocols: string[] }>(`/runs/${runId}/terminal/options`)
+    setProtocols(null); setAttackerProtocols([]); setTarget(attackerOnly ? "attacker" : "victim"); setProtocol(null); setOptionsError(""); setState("loading");
+    void request<{ protocols: string[]; attacker_protocols?: string[] }>(`/runs/${runId}/terminal/options`)
       .then((result) => {
         if (disposed) return;
-        const available = result.protocols.filter((value): value is Protocol => value === "ssh" || value === "rdp");
-        if (!available.length) throw new Error("No hay conexiones remotas configuradas para esta instancia.");
-        setProtocols(available);
-        setProtocol(available.includes(preferredProtocol as Protocol) ? preferredProtocol as Protocol : available[0]);
+        const selection = selectTerminalConnection(result, preferredProtocol, attackerOnly);
+        setProtocols(selection.victimProtocols);
+        setAttackerProtocols(selection.attackerProtocols);
+        setTarget(selection.target);
+        if (!selection.protocol) throw new Error(attackerOnly
+          ? "La conexión de Kali atacante no está disponible para este reto o estudiante. Consulta al instructor."
+          : "No hay conexiones remotas configuradas para esta instancia.");
+        setProtocol(selection.protocol);
       })
       .catch((error: unknown) => {
-        if (!disposed) setOptionsError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : "No se pudieron comprobar las conexiones disponibles.");
+        if (!disposed) {
+          setOptionsError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : "No se pudieron comprobar las conexiones disponibles.");
+          setState("error");
+        }
       });
     return () => { disposed = true; };
-  }, [runId, preferredProtocol, optionsAttempt]);
+  }, [runId, preferredProtocol, attackerOnly, optionsAttempt]);
 
   useEffect(() => {
     const updateFullscreen = () => setFullscreen(document.fullscreenElement === terminalRef.current);
@@ -110,8 +137,16 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
     }
   };
   const switchProtocol = (next: Protocol) => {
-    if (next === protocol || !protocols?.includes(next) || state === "loading") return;
+    const available = target === "attacker" ? attackerProtocols : protocols;
+    if (next === protocol || !available?.includes(next) || state === "loading") return;
     setState("loading"); setMessage(""); setProtocol(next);
+  };
+  const switchTarget = (next: Target) => {
+    if (attackerOnly || next === target || state === "loading") return;
+    const available = next === "attacker" ? attackerProtocols : protocols;
+    if (!available?.length) return;
+    setState("loading"); setMessage(""); setTarget(next);
+    setProtocol((current) => current && available.includes(current) ? current : available[0]);
   };
 
   useEffect(() => {
@@ -122,11 +157,13 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
     let keyboard: Keyboard | null = null;
     let resizeTimer = 0;
     let resizeFrame = 0;
+    let scaleFrame = 0;
+    let restoreDisplayResize: (() => void) | null = null;
     setState("loading"); setMessage("");
     const connect = async () => {
       try {
         const ticket = await request<{ websocket_path: string }>(`/runs/${runId}/terminal/session`, {
-          method: "POST", body: JSON.stringify({ protocol }),
+          method: "POST", body: JSON.stringify({ protocol, target }),
         });
         const Guacamole = await loadClient();
         if (disposed || !viewport.current) return;
@@ -137,7 +174,34 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
         client = current; clientRef.current = current;
         const display = current.getDisplay();
         const element = display.getElement();
-        viewport.current.replaceChildren(element); display.scale(zoomRef.current);
+        const scaleToViewport = () => {
+          const panel = viewport.current;
+          if (!panel || clientRef.current !== current) return;
+          const bounds = panel.getBoundingClientRect();
+          const availableWidth = panel.clientWidth || bounds.width;
+          const availableHeight = panel.clientHeight || bounds.height;
+          display.scale(protocol === "rdp"
+            ? fitRdpScale(availableWidth, availableHeight, display.getWidth(), display.getHeight(), zoomRef.current)
+            : zoomRef.current);
+        };
+        const scheduleScale = () => {
+          window.cancelAnimationFrame(scaleFrame);
+          scaleFrame = window.requestAnimationFrame(scaleToViewport);
+        };
+        applyScaleRef.current = scaleToViewport;
+        if (protocol === "rdp") {
+          const previousResize = display.onresize;
+          const onDisplayResize = (width: number, height: number) => {
+            previousResize?.call(display, width, height);
+            if (!disposed) scheduleScale();
+          };
+          display.onresize = onDisplayResize;
+          restoreDisplayResize = () => {
+            if (display.onresize === onDisplayResize) display.onresize = previousResize;
+          };
+        }
+        viewport.current.replaceChildren(element);
+        scaleToViewport();
         current.onstatechange = (value) => {
           if (disposed) return;
           if (value === 3) setState("connected");
@@ -161,17 +225,18 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
         keyboard.onkeyup = (keysym) => current.sendKeyEvent(0, keysym);
         const mouse = new Guacamole.Mouse(element);
         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (value) => current.sendMouseState(value, true);
-        const initialSize = terminalDimensions(viewport.current, zoomRef.current);
+        const initialSize = terminalDimensions(viewport.current, protocol === "rdp" ? 1 : zoomRef.current);
         let lastSize = initialSize;
         const sendSizeIfChanged = () => {
           const panel = viewport.current;
           if (!panel || clientRef.current !== current) return;
-          const next = terminalDimensions(panel, zoomRef.current);
+          const next = terminalDimensions(panel, protocol === "rdp" ? 1 : zoomRef.current);
           if (Math.abs(next.width - lastSize.width) < 3 && Math.abs(next.height - lastSize.height) < 3) return;
           lastSize = next;
           current.sendSize(next.width, next.height);
         };
         const scheduleSize = () => {
+          if (protocol === "rdp") scheduleScale();
           window.clearTimeout(resizeTimer);
           resizeTimer = window.setTimeout(() => {
             resizeFrame = window.requestAnimationFrame(sendSizeIfChanged);
@@ -190,21 +255,20 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
     void connect();
     return () => {
       disposed = true; observer?.disconnect(); keyboard?.reset();
-      window.clearTimeout(resizeTimer); window.cancelAnimationFrame(resizeFrame);
+      window.clearTimeout(resizeTimer); window.cancelAnimationFrame(resizeFrame); window.cancelAnimationFrame(scaleFrame);
+      restoreDisplayResize?.();
+      applyScaleRef.current = null;
       scheduleSizeRef.current = null;
       if (client) { client.onstatechange = null; client.onerror = null; client.onclipboard = null; client.disconnect(); }
       viewport.current?.replaceChildren();
       if (clientRef.current === client) clientRef.current = null;
       if (keyboardRef.current === keyboard) keyboardRef.current = null;
     };
-  }, [runId, attempt, protocol]);
+  }, [runId, attempt, protocol, target]);
   useEffect(() => {
     zoomRef.current = zoom;
-    const client = clientRef.current; const panel = viewport.current;
-    if (client && panel) {
-      client.getDisplay().scale(zoom);
-      scheduleSizeRef.current?.();
-    }
+    applyScaleRef.current?.();
+    scheduleSizeRef.current?.();
   }, [zoom]);
 
   const authenticate = async (event: FormEvent) => {
@@ -216,26 +280,31 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
   const labels: Record<State, string> = { loading: "Conectando…", connected: "Conectada", auth: "Conecta tu cuenta", error: "Error de conexión", disconnected: "Desconectada" };
   return <section className="embedded-terminal-panel" ref={terminalRef} aria-label="Conexión remota del laboratorio">
     <div className="embedded-terminal-toolbar">
-      <div><span className="eyebrow">CONEXIÓN INTEGRADA</span><strong>{protocol === "rdp" ? "Escritorio RDP" : "Terminal SSH"}</strong></div>
+      <div><span className="eyebrow">CONEXIÓN INTEGRADA</span><strong>{protocol === "rdp" ? "Escritorio RDP" : "Terminal SSH"}{target === "attacker" ? " · Kali atacante" : " · VM víctima"}</strong></div>
       <span className={`terminal-state ${state}`} role="status">{labels[state]}</span>
       <div className="terminal-zoom-controls">
         <button type="button" aria-label={protocol === "rdp" ? "Reducir vista RDP" : "Reducir texto de terminal"} disabled={zoom <= ZOOM_STEPS[0]} onClick={() => changeZoom(-1)}>A−</button>
-        <span aria-live="polite">{Math.round(zoom * 100)}%</span>
+        <span aria-live="polite">{protocol === "rdp" ? `Ajuste ${Math.round(zoom * 100)}%` : `${Math.round(zoom * 100)}%`}</span>
         <button type="button" aria-label={protocol === "rdp" ? "Ampliar vista RDP" : "Ampliar texto de terminal"} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} onClick={() => changeZoom(1)}>A+</button>
+        {protocol === "rdp" && <button type="button" aria-label="Ajustar escritorio completo a la ventana" disabled={rdpZoom === 1} onClick={() => setRdpZoom(1)}>Ajustar</button>}
       </div>
       <button type="button" className="secondary-action terminal-fullscreen-action" aria-pressed={fullscreen} onClick={() => void toggleFullscreen()}>{fullscreen ? "Salir de pantalla completa" : "Pantalla completa de conexión"}</button>
     </div>
     <div className="terminal-protocol-selector" role="group" aria-label="Tipo de conexión del laboratorio">
+      {!attackerOnly && attackerProtocols.length > 0 && Boolean(protocols?.length) && <div className="terminal-target-selector" role="group" aria-label="Máquina de trabajo">
+        <button type="button" aria-pressed={target === "victim"} disabled={state === "loading"} onClick={() => switchTarget("victim")}>Víctima · .137</button>
+        <button type="button" aria-pressed={target === "attacker"} disabled={state === "loading"} onClick={() => switchTarget("attacker")}>Atacante · Kali .134</button>
+      </div>}
       {(["ssh", "rdp"] as const).map((name) => <button key={name} type="button"
-        aria-pressed={protocol === name} disabled={!protocols?.includes(name) || state === "loading"}
+        aria-pressed={protocol === name} disabled={!(target === "attacker" ? attackerProtocols : protocols)?.includes(name) || state === "loading"}
         onClick={() => switchProtocol(name)}>{name === "ssh" ? "SSH · Terminal" : "RDP · Escritorio"}</button>)}
-      <small role="status">{!protocols ? "Comprobando conexiones disponibles…" : !protocols.includes("rdp")
+      <small role="status">{!protocols ? "Comprobando conexiones disponibles…" : !(target === "attacker" ? attackerProtocols : protocols).includes("rdp")
         ? "RDP no está configurado para esta VM; consulta al instructor."
-        : !protocols.includes("ssh") ? "SSH no está configurado para esta VM." : "Elige SSH o RDP; se abre una conexión a la vez."}</small>
+        : !(target === "attacker" ? attackerProtocols : protocols).includes("ssh") ? "SSH no está configurado para esta VM." : attackerOnly ? "Elige SSH o RDP para trabajar desde Kali; se abre una conexión a la vez." : attackerProtocols.length > 0 ? "Elige la máquina y SSH o RDP; se abre una conexión a la vez." : "Elige SSH o RDP; se abre una conexión a la vez."}</small>
     </div>
     <div className="terminal-stage">
       <div className="guacamole-viewport guacamole-canvas" ref={viewport} tabIndex={state === "auth" || !protocol ? -1 : 0} role="region"
-        aria-label={protocol === "rdp" ? "Escritorio RDP interactivo" : "Terminal SSH interactiva"}
+        aria-label={target === "attacker" ? (protocol === "rdp" ? "Escritorio RDP de Kali atacante" : "Terminal SSH de Kali atacante") : (protocol === "rdp" ? "Escritorio RDP interactivo" : "Terminal SSH interactiva")}
         aria-hidden={state === "auth" || !protocol}
         onPointerDown={(event) => event.currentTarget.focus()} onBlur={() => keyboardRef.current?.reset()}
         onPaste={(event) => {
@@ -245,7 +314,7 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
           const writer = new window.Guacamole.StringWriter(client.createClipboardStream("text/plain"));
           writer.sendText(text); writer.sendEnd();
         }} />
-      {(state === "loading" || (!protocol && !optionsError)) && <p className="terminal-stage-overlay" role="status">{protocol ? `Abriendo ${protocol.toUpperCase()}…` : "Comprobando conexiones disponibles…"}</p>}
+      {(state === "loading" && !optionsError) && <p className="terminal-stage-overlay" role="status">{protocol ? `Abriendo ${protocol.toUpperCase()}…` : "Comprobando conexiones disponibles…"}</p>}
       {state === "auth" && <form className="terminal-auth-form" onSubmit={authenticate}>
         <h3>Conecta tu cuenta de laboratorio</h3><p>Usa tu contraseña personal de Guacamole. No se almacena en el navegador.</p>
         <label htmlFor={`terminal-password-${runId}`}>Contraseña personal</label>
@@ -255,7 +324,7 @@ export function GuacamoleTerminal({ runId, preferredProtocol, onClipboard }: {
     </div>
     {optionsError && <div className="terminal-connection-notice" role="alert"><p>{optionsError}</p><button type="button" className="secondary-action" onClick={() => setOptionsAttempt((value) => value + 1)}>Reintentar conexiones</button></div>}
     {message && <p className="terminal-connection-notice" role="alert">{message}</p>}
-    {(state === "error" || state === "disconnected") && <div className="terminal-connection-notice">
+    {protocol && (state === "error" || state === "disconnected") && <div className="terminal-connection-notice">
       <button type="button" className="secondary-action" onClick={() => setAttempt((value) => value + 1)}>Reconectar terminal</button>
       <button type="button" className="secondary-action" onClick={() => setState("auth")}>Conectar mi cuenta</button>
     </div>}

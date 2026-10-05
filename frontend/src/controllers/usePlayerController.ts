@@ -9,6 +9,7 @@ import { api, BackendLaboratory, Challenge, RankingRow, Run } from "../api";
 import { PlayerView } from "../config";
 import { inferCategory } from "../components/challenges";
 import { observeAssignedChallenges, publishNotification } from "../lib/notifications";
+import { useRankingLive } from "../lib/useRankingLive";
 
 export function usePlayerController(userId: number) {
   const [view, setView] = useState<PlayerView>("dashboard");
@@ -80,24 +81,7 @@ export function usePlayerController(userId: number) {
     void load();
   }, [load]);
 
-  /** Suscribe el jugador a actualizaciones del ranking en tiempo real. */
-  useEffect(() => {
-    let disposed = false;
-    let socket: WebSocket | null = null;
-    // Ticket HttpOnly de un uso: el JWT no viaja en URLs ni logs del proxy.
-    void api.rankingSession().then((ticket) => {
-      if (disposed || ticket.websocket_path !== "/api/v1/ws/ranking") return;
-      const protocol = location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${location.host}${ticket.websocket_path}`);
-      socket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === "ranking.updated") setRanking(payload.rows);
-        } catch { /* Un evento inválido no interrumpe la sesión. */ }
-      };
-    }).catch(() => { /* El ranking HTTP sigue disponible. */ });
-    return () => { disposed = true; socket?.close(); };
-  }, []);
+  useRankingLive(setRanking);
 
   const visibleChallenges = useMemo(() => {
     const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();

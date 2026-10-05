@@ -32,7 +32,13 @@ class DynamicFlagRuntime:
         self.settings = get_settings()
 
     def path_for(self, flag: ChallengeFlag, challenge_code: str) -> str:
-        template = self.settings.flag_injector_flag_path
+        # Este escenario comparte VM con LAB-01, pero nunca su archivo de flag.
+        # LAB-01 conserva la ruta heredada para no alterar corridas existentes.
+        template = (
+            "/opt/ctf/ESC-01-RECON/flag.txt"
+            if challenge_code == "ESC-01-RECON"
+            else self.settings.flag_injector_flag_path
+        )
         if "{{CODE}}" in template:
             if not re.fullmatch(r"[A-Z0-9-]{3,64}", challenge_code):
                 raise ValueError("El código del reto no es válido para una ruta de flag")
@@ -59,6 +65,8 @@ class DynamicFlagRuntime:
             raise ValueError("El reto dinámico necesita una VM víctima con IP asignada")
         if not self.settings.flag_injector_enabled:
             raise ValueError("El inyector SSH está deshabilitado; activa FLAG_INJECTOR_ENABLED para un reto dinámico")
+        if challenge.code == "ESC-01-RECON" and len(dynamic_flags) > 1:
+            raise ValueError("ESC-01-RECON admite una sola flag dinámica de evidencia")
         if len(dynamic_flags) > 1 and "{{ORDER}}" not in self.settings.flag_injector_flag_path:
             raise ValueError("Hay varias flags dinámicas activas. Usa FLAG_INJECTOR_FLAG_PATH con {{ORDER}} para darles archivos distintos")
 

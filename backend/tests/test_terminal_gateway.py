@@ -1,5 +1,6 @@
 """Terminal authorization and cookie regressions; no external systems contacted."""
 
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
@@ -19,6 +20,7 @@ class MemorySession:
     def __init__(self, user, run, challenge, instance):
         self.objects = {User: user, ChallengeRun: run, Challenge: challenge}
         self.instance = instance
+        self.attackers = []
 
     async def __aenter__(self):
         return self
@@ -32,12 +34,15 @@ class MemorySession:
     async def scalar(self, statement):
         return self.instance
 
+    async def scalars(self, statement):
+        return SimpleNamespace(all=lambda: self.attackers)
+
 
 class TerminalAuthorizationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.user = SimpleNamespace(id=7, username="student-fixture", role="player", is_active=True)
         self.run = SimpleNamespace(id=101, user_id=7, challenge_id=11, status="active", expires_at=now_utc() + timedelta(minutes=20))
-        self.challenge = SimpleNamespace(id=11, is_published=True)
+        self.challenge = SimpleNamespace(id=11, code="LAB-01", is_published=True)
         self.instance = SimpleNamespace(user_id=7, state=InstanceState.IN_USE.value, guacamole_connection_id="reserved-fixture-id")
         self.session = MemorySession(self.user, self.run, self.challenge, self.instance)
         self.app = SimpleNamespace(state=SimpleNamespace(session_factory=lambda: self.session))
@@ -117,7 +122,7 @@ class TerminalAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             connection_id, _, _ = await terminal.authorized_target(self.app, 101, 7, "rdp")
             options = await terminal.terminal_options(101, SimpleNamespace(app=self.app), self.user)
         self.assertEqual(connection_id, "rdp-same-vm")
-        self.assertEqual(options, {"protocols": ["ssh", "rdp"]})
+        self.assertEqual(options, {"protocols": ["ssh", "rdp"], "attacker_protocols": []})
 
     async def test_unconfigured_protocol_does_not_fall_back_to_other_vm(self):
         self.instance.vm_asset_id = 71
@@ -130,6 +135,120 @@ class TerminalAuthorizationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as raised:
                 await terminal.authorized_target(self.app, 101, 7, "rdp")
         self.assertEqual(raised.exception.status_code, 409)
+
+    def configure_attacker(self):
+        self.challenge.code = terminal.ATTACK_CHALLENGE_CODE
+        self.challenge.asset_references = [terminal.VICTIM_VM_NAME, terminal.ATTACKER_VM_NAME]
+        self.instance.vm_asset_id = 71
+        self.session.objects[VMAsset] = SimpleNamespace(
+            id=71, name=terminal.VICTIM_VM_NAME, ip_address=terminal.VICTIM_IP, status="ready"
+        )
+        self.session.attackers = [SimpleNamespace(
+            id=72, name=terminal.ATTACKER_VM_NAME, ip_address=terminal.ATTACKER_IP, status="ready"
+        )]
+        connections = [
+            SimpleNamespace(identifier="reserved-fixture-id", protocol="ssh", hostname=terminal.VICTIM_IP),
+            SimpleNamespace(identifier="kali-ssh", protocol="ssh", hostname=terminal.ATTACKER_IP),
+            SimpleNamespace(identifier="other-host", protocol="rdp", hostname="192.168.146.135"),
+        ]
+        permissions = {"connectionPermissions": {"kali-ssh": ["READ"]}}
+        self.app.state.guacamole_admin = SimpleNamespace(
+            list_connections=AsyncMock(return_value=connections),
+            get_user_permissions=AsyncMock(return_value=permissions),
+        )
+
+    async def test_attacker_is_exact_kali_host_with_read_permission(self):
+        self.configure_attacker()
+        with patch.object(terminal, "_assigned", AsyncMock(return_value=True)):
+            connection_id, _, _ = await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            options = await terminal.terminal_options(101, SimpleNamespace(app=self.app), self.user)
+        self.assertEqual(connection_id, "kali-ssh")
+        self.assertEqual(options, {"protocols": [], "attacker_protocols": ["ssh"]})
+
+    async def test_attack_scenario_rejects_victim_even_with_direct_read(self):
+        self.configure_attacker()
+        self.app.state.guacamole_admin.get_user_permissions.return_value = {
+            "connectionPermissions": {"kali-ssh": ["READ"], "reserved-fixture-id": ["READ"]}
+        }
+        with patch.object(terminal, "_assigned", AsyncMock(return_value=True)):
+            for protocol in (None, "ssh"):
+                with self.subTest(protocol=protocol):
+                    with self.assertRaises(HTTPException) as denied:
+                        await terminal.authorized_target(self.app, 101, 7, protocol, "victim")
+                    self.assertEqual(denied.exception.status_code, 409)
+            with self.assertRaises(HTTPException) as implicit:
+                await terminal.authorized_target(self.app, 101, 7)
+            self.assertEqual(implicit.exception.status_code, 409)
+
+    async def test_attacker_denied_for_other_challenge_or_victim(self):
+        self.configure_attacker()
+        with patch.object(terminal, "_assigned", AsyncMock(return_value=True)):
+            self.challenge.asset_references = [terminal.VICTIM_VM_NAME]
+            with self.assertRaises(HTTPException) as unreferenced:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(unreferenced.exception.status_code, 409)
+            self.challenge.asset_references = [terminal.VICTIM_VM_NAME, terminal.ATTACKER_VM_NAME]
+            self.challenge.code = "LAB-01"
+            with self.assertRaises(HTTPException) as wrong_challenge:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(wrong_challenge.exception.status_code, 409)
+            self.challenge.code = terminal.ATTACK_CHALLENGE_CODE
+            self.session.objects[VMAsset].ip_address = "192.168.146.138"
+            with self.assertRaises(HTTPException) as wrong_victim:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(wrong_victim.exception.status_code, 409)
+
+    async def test_attacker_denied_without_exact_inventory_or_read(self):
+        self.configure_attacker()
+        with patch.object(terminal, "_assigned", AsyncMock(return_value=True)):
+            self.session.attackers.append(SimpleNamespace(
+                name="duplicate-ip", ip_address=terminal.ATTACKER_IP, status="ready"
+            ))
+            with self.assertRaises(HTTPException) as duplicate:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(duplicate.exception.status_code, 409)
+            self.session.attackers.pop()
+            self.app.state.guacamole_admin.get_user_permissions.return_value = {"connectionPermissions": {}}
+            with self.assertRaises(HTTPException) as denied:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(denied.exception.status_code, 409)
+
+    async def test_attacker_denied_for_unreserved_run_and_unconfigured_protocol(self):
+        self.configure_attacker()
+        with patch.object(terminal, "_assigned", AsyncMock(return_value=True)):
+            with self.assertRaises(HTTPException) as protocol:
+                await terminal.authorized_target(self.app, 101, 7, "rdp", "attacker")
+            self.assertEqual(protocol.exception.status_code, 409)
+            self.instance.state = InstanceState.AVAILABLE.value
+            with self.assertRaises(HTTPException) as unreserved:
+                await terminal.authorized_target(self.app, 101, 7, "ssh", "attacker")
+            self.assertEqual(unreserved.exception.status_code, 409)
+
+
+class TerminalBridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_watch_keeps_revalidating_attacker_target(self):
+        async def pending_message():
+            await asyncio.Event().wait()
+
+        async def pending_upstream():
+            await asyncio.Event().wait()
+            yield ""
+
+        browser = SimpleNamespace(receive_text=AsyncMock(side_effect=pending_message), send_text=AsyncMock())
+        class Upstream:
+            send = AsyncMock()
+
+            def __aiter__(self):
+                return pending_upstream()
+
+        upstream = Upstream()
+        sessions = SimpleNamespace(is_closed=AsyncMock(side_effect=[False, True]),
+                                   get_user=AsyncMock(return_value={"username": "student-fixture"}))
+        app = SimpleNamespace(state=SimpleNamespace(terminal_sessions=sessions))
+        target = AsyncMock(return_value=("kali-ssh", now_utc() + timedelta(minutes=5), "student-fixture"))
+        with patch.object(terminal, "authorized_target", target), patch.object(terminal.asyncio, "sleep", AsyncMock()):
+            await terminal.bridge(app, 101, 7, browser, upstream, "ssh", "attacker")
+        target.assert_awaited_once_with(app, 101, 7, "ssh", "attacker")
 
 
 class TerminalCookieTests(unittest.IsolatedAsyncioTestCase):
@@ -182,8 +301,13 @@ class TerminalCookieTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_protocol_choice_is_bound_to_one_use_ticket(self):
         await self.call_session(Response(), selection=terminal.TerminalSelection(protocol="rdp"))
-        self.target.assert_awaited_once_with(self.app, 101, 7, "rdp")
-        self.sessions.issue.assert_awaited_once_with(101, 7, "rdp")
+        self.target.assert_awaited_once_with(self.app, 101, 7, "rdp", "victim")
+        self.sessions.issue.assert_awaited_once_with(101, 7, "rdp", "victim")
+
+    async def test_attacker_choice_is_authorized_and_bound_to_ticket(self):
+        await self.call_session(Response(), selection=terminal.TerminalSelection(protocol="ssh", target="attacker"))
+        self.target.assert_awaited_once_with(self.app, 101, 7, "ssh", "attacker")
+        self.sessions.issue.assert_awaited_once_with(101, 7, "ssh", "attacker")
 
 
 class TunnelURLTests(unittest.TestCase):
@@ -243,8 +367,17 @@ class WebSocketGateTests(unittest.IsolatedAsyncioTestCase):
         target = AsyncMock(return_value=("rdp-same-vm", now_utc(), "student-fixture"))
         with patch.object(terminal, "get_settings", return_value=SimpleNamespace(public_origin="https://ctf.example.invalid")), patch.object(terminal, "authorized_target", target), patch.object(terminal, "tunnel_url", side_effect=ValueError("stop before upstream")):
             await terminal.terminal_websocket(101, socket)
-        target.assert_awaited_once_with(socket.app, 101, 7, "rdp")
+        target.assert_awaited_once_with(socket.app, 101, 7, "rdp", "victim")
         self.assertEqual(socket.close.await_args_list[0].kwargs["code"], 1011)
+
+    async def test_websocket_revalidates_attacker_from_ticket(self):
+        socket, sessions = self.make_socket("https://ctf.example.invalid")
+        sessions.consume.return_value = {"user_id": 7, "protocol": "ssh", "target": "attacker"}
+        sessions.get_user = AsyncMock(return_value={"username": "student-fixture", "token": "fixture", "data_source": "fixture"})
+        target = AsyncMock(return_value=("kali-ssh", now_utc(), "student-fixture"))
+        with patch.object(terminal, "get_settings", return_value=SimpleNamespace(public_origin="https://ctf.example.invalid")), patch.object(terminal, "authorized_target", target), patch.object(terminal, "tunnel_url", side_effect=ValueError("stop before upstream")):
+            await terminal.terminal_websocket(101, socket)
+        target.assert_awaited_once_with(socket.app, 101, 7, "ssh", "attacker")
 
 
 if __name__ == "__main__":

@@ -6,40 +6,10 @@
 import { createElement } from "react";
 import { api, User, Challenge, RankingRow } from "../../api";
 import { Icon } from "./ui";
+import { topRankingRows } from "../../lib/rankingOrder";
 
-export function buildRanking(
-  rows: RankingRow[],
-  user: User
-): RankingRow[] {
-  const byName = new Map<string, RankingRow>();
-
-  rows.forEach((row) => {
-    byName.set(row.username, row);
-  });
-
-  // Mantener al usuario autenticado visible aunque todavía no haya
-  // completado un reto. No se agregan usuarios ficticios.
-  if (!byName.has(user.username)) {
-    byName.set(user.username, {
-      position: 0,
-      username: user.username,
-      total_points: 0,
-      challenges_completed: 0,
-    });
-  }
-
-  return Array.from(byName.values())
-    .sort(
-      (a, b) =>
-        b.total_points - a.total_points ||
-        b.challenges_completed - a.challenges_completed ||
-        a.username.localeCompare(b.username)
-    )
-    .slice(0, 10)
-    .map((row, index) => ({
-      ...row,
-      position: index + 1,
-    }));
+export function buildRanking(rows: RankingRow[]): RankingRow[] {
+  return topRankingRows(rows);
 }
 
 export function Ranking({
@@ -51,8 +21,7 @@ export function Ranking({
   user: User;
   compact?: boolean;
 }) {
-  const displayRows =
-    buildRanking(rows, user);
+  const displayRows = buildRanking(rows);
 
   return (
     <section
@@ -76,7 +45,7 @@ export function Ranking({
         </div>
 
         <span className="panel-link">
-          10 jugadores
+          {displayRows.length} {displayRows.length === 1 ? "jugador" : "jugadores"}
         </span>
       </div>
 

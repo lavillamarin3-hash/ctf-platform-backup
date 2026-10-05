@@ -9,6 +9,7 @@ import { api, Challenge, RankingRow, User } from "../api";
 import { Theme, ThemePreference, ManagementView } from "../config";
 import { GuestSidebar, Header, StatCard, Ranking } from "../components/common";
 import { ChallengeCard, inferCategory } from "../components/challenges";
+import { useRankingLive } from "../lib/useRankingLive";
 
 export function GuestApp({
   user,
@@ -40,6 +41,8 @@ export function GuestApp({
 
   const [ranking, setRanking] =
     useState<RankingRow[]>([]);
+
+  useRankingLive(setRanking);
 
   const [selected, setSelected] =
     useState<string | null>(

@@ -23,6 +23,14 @@ def _asset_ref_key(value: str) -> str:
     return value.strip().upper()
 
 
+def _guacamole_access_references(challenge: Challenge) -> list[str]:
+    """La VM víctima de ESC se usa para inyección, no para acceso del jugador."""
+    refs = challenge.asset_references or []
+    if challenge.code == "ESC-01-RECON":
+        return [ref for ref in refs if _asset_ref_key(ref) == "LAB-KALI"]
+    return refs
+
+
 async def _sync_player_guacamole_permissions(request: Request, user_id: int) -> None:
     """Concede al jugador únicamente las conexiones Guacamole de sus retos asignados.
 
@@ -40,7 +48,7 @@ async def _sync_player_guacamole_permissions(request: Request, user_id: int) -> 
                 .join(ChallengeGroupAssignment, ChallengeGroupAssignment.challenge_id == Challenge.id)
                 .join(GroupMembership, GroupMembership.group_id == ChallengeGroupAssignment.group_id)
                 .join(StudentGroup, StudentGroup.id == GroupMembership.group_id)
-                .where(GroupMembership.user_id == user_id, StudentGroup.is_active.is_(True))
+                .where(GroupMembership.user_id == user_id, StudentGroup.is_active.is_(True), Challenge.is_published.is_(True))
             )
         ).unique().all()
 
@@ -85,7 +93,7 @@ async def _sync_player_guacamole_permissions(request: Request, user_id: int) -> 
 
         desired: dict[str, list[str]] = {}
         for challenge in assigned_challenges:
-            for raw_ref in challenge.asset_references or []:
+            for raw_ref in _guacamole_access_references(challenge):
                 key = _asset_ref_key(raw_ref)
                 direct = refs_to_connections.get(key)
                 if direct:
@@ -124,7 +132,7 @@ async def _sync_guacamole_group_permissions(request: Request, group_id: int) -> 
         assigned_challenges = (await session.scalars(
             select(Challenge)
             .join(ChallengeGroupAssignment, ChallengeGroupAssignment.challenge_id == Challenge.id)
-            .where(ChallengeGroupAssignment.group_id == group_id)
+            .where(ChallengeGroupAssignment.group_id == group_id, Challenge.is_published.is_(True))
         )).unique().all()
         vms = (await session.scalars(select(VMAsset))).all()
         labs = (await session.scalars(select(Laboratory))).all()
@@ -159,7 +167,7 @@ async def _sync_guacamole_group_permissions(request: Request, group_id: int) -> 
 
     desired: dict[str, list[str]] = {}
     for challenge in assigned_challenges:
-        for raw_ref in challenge.asset_references or []:
+        for raw_ref in _guacamole_access_references(challenge):
             key = _asset_ref_key(raw_ref)
             direct = refs_to_connections.get(key)
             if direct:
@@ -195,7 +203,7 @@ async def _sync_group_members_guacamole_permissions(request: Request, group_id: 
 
 async def _find_challenge_vm(session, challenge: Challenge):
     """Busca la VM víctima sin exigir que su conexión Guacamole esté escrita en PostgreSQL."""
-    refs = {_asset_ref_key(value) for value in (challenge.asset_references or []) if value.strip()}
+    refs = [_asset_ref_key(value) for value in (challenge.asset_references or []) if value.strip()]
 
     labs = (
         await session.scalars(
@@ -219,12 +227,46 @@ async def _find_challenge_vm(session, challenge: Challenge):
         ]
         return matches[0] if len(matches) == 1 else (None, None)
 
-    for lab in labs:
-        lab_keys = {_asset_ref_key(lab.code or ""), _asset_ref_key(lab.name)}
-        for vm in lab.vms:
-            vm_keys = {_asset_ref_key(vm.name), _asset_ref_key(vm.ip_address or "")} | lab_keys
-            if refs.intersection(vm_keys) and vm.status == "ready":
-                return lab, vm
+    ready_vms = [
+        (lab, vm) for lab in labs if lab.status == "ready"
+        for vm in lab.vms if vm.status == "ready"
+    ]
+
+    def unique_target(matches):
+        if len(matches) != 1:
+            return None, None
+        selected_lab, selected_vm = matches[0]
+        # Even an exact VM name is unsafe if a stale inventory row names the
+        # same physical IP. Unlike LAB-01, no generic challenge has a trusted
+        # fixed target that can disambiguate this situation.
+        if selected_vm.ip_address:
+            owners = [
+                vm for lab in labs for vm in lab.vms
+                if _asset_ref_key(vm.ip_address or "") == _asset_ref_key(selected_vm.ip_address)
+            ]
+            if len(owners) != 1:
+                return None, None
+        return selected_lab, selected_vm
+
+    # The first resolvable reference is the target. Direct VM references take
+    # precedence over laboratory labels for that reference only; never turn all
+    # references into a set, since that can redirect injection to an attacker.
+    for ref in refs:
+        direct = [
+            (lab, vm) for lab, vm in ready_vms
+            if ref in {_asset_ref_key(vm.name), _asset_ref_key(vm.ip_address or "")}
+        ]
+        if direct:
+            return unique_target(direct)
+
+        matching_labs = [
+            lab for lab in labs if lab.status == "ready"
+            and ref in {_asset_ref_key(lab.code or ""), _asset_ref_key(lab.name)}
+        ]
+        if matching_labs:
+            if len(matching_labs) != 1:
+                return None, None
+            return unique_target([(lab, vm) for lab, vm in ready_vms if lab is matching_labs[0]])
 
     return None, None
 

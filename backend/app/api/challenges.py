@@ -111,9 +111,12 @@ async def update_challenge(code: str, payload: ChallengeCreate, request: Request
 @router.delete("/api/v1/challenges/{code}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_challenge(code: str, request: Request, user=Depends(require_roles("admin", "instructor"))):
     async with request.app.state.session_factory() as session:
-        challenge = await session.scalar(select(Challenge).where(Challenge.code == code))
+        challenge = await session.scalar(select(Challenge).where(Challenge.code == code).with_for_update())
         if challenge is None:
             raise HTTPException(status_code=404, detail="Reto no encontrado")
+        # Despublicar una corrida en curso cortaría la terminal y dejaría la
+        # evidencia dinámica pendiente. Exigir cierre/limpieza antes de archivar.
+        await require_idle_challenge(session, challenge.id)
         challenge.is_published = False
         await write_audit(session, user.id, "challenge.archive", "challenge", str(challenge.id), {"code": code})
         await session.commit()

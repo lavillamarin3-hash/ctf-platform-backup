@@ -100,6 +100,17 @@ class TerminalSessionsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.sessions.issue(101, 8, "vnc")
 
+    async def test_attacker_target_is_stored_only_in_one_use_ticket(self):
+        ticket = await self.sessions.issue(101, 8, "ssh", "attacker")
+        self.assertEqual(await self.sessions.consume(ticket, 101), {
+            "run_id": 101, "user_id": 8, "protocol": "ssh", "target": "attacker"
+        })
+        self.assertIsNone(await self.sessions.consume(ticket, 101))
+        with self.assertRaises(ValueError):
+            await self.sessions.issue(101, 8, None, "attacker")
+        with self.assertRaises(ValueError):
+            await self.sessions.issue(101, 8, "ssh", "other-host")
+
     async def test_oversized_ticket_is_rejected_before_redis_lookup(self):
         self.assertIsNone(await self.sessions.consume("a" * 129, 101))
         self.assertEqual(self.redis.getdel_calls, 0)

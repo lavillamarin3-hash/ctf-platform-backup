@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
-from app.api.challenges import create_flag, require_idle_challenge, update_flag
+from app.api.challenges import archive_challenge, create_flag, require_idle_challenge, update_flag
 from app.schemas import FlagUpdate
 from app.services.runtime_flags import EXPLICIT_STATIC_VALIDATOR
 
@@ -19,6 +19,24 @@ class ChallengeEditSafetyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as error:
             await require_idle_challenge(session, 1)
         self.assertEqual(error.exception.status_code, 409)
+
+    async def test_archive_does_not_interrupt_active_run(self):
+        challenge = SimpleNamespace(id=7, is_published=True)
+        session, request = self.setup_edit([challenge, 101])
+        with self.assertRaises(HTTPException) as error:
+            await archive_challenge("OLD-01", request, SimpleNamespace(id=1))
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(challenge.is_published)
+        session.commit.assert_not_called()
+
+    async def test_archive_preserves_challenge_row_when_idle(self):
+        challenge = SimpleNamespace(id=7, is_published=True)
+        session, request = self.setup_edit([challenge, None])
+        with patch("app.api.challenges.write_audit", new_callable=AsyncMock):
+            await archive_challenge("OLD-01", request, SimpleNamespace(id=1))
+        self.assertFalse(challenge.is_published)
+        session.delete.assert_not_called()
+        session.commit.assert_awaited_once()
 
     def setup_edit(self, scalar_results):
         session = AsyncMock()
