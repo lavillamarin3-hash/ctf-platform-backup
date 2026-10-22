@@ -1,0 +1,30 @@
+name: Respaldo puntual CTF antes de producción
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/respaldo_ctf_preproduccion_20261022.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  respaldar:
+    if: github.repository == 'lavillamarin3-hash/ctf-platform-backup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio de origen y guardar commit exacto
+        env:
+          BACKUP_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORIGIN_SHA: d6e472e20ee625e2048491816bf604b4a85e099d
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/lavillamarin3-hash/ctf-platform.git /tmp/ctf-origen
+          cd /tmp/ctf-origen
+          git cat-file -e "${ORIGIN_SHA}^{commit}"
+          git remote add backup "https://x-access-token:${BACKUP_TOKEN}@github.com/lavillamarin3-hash/ctf-platform-backup.git"
+          git push backup "${ORIGIN_SHA}:refs/heads/snapshots/ctf-preproduccion-20261022-d6e472e"
+          git ls-remote --exit-code backup refs/heads/snapshots/ctf-preproduccion-20261022-d6e472e | grep -q "^${ORIGIN_SHA}"
+          echo "Respaldo exacto verificado: ${ORIGIN_SHA}"
