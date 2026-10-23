@@ -4,7 +4,7 @@ import { GuacamoleTerminal } from './GuacamoleTerminal';
 
 export function KaliPanel({run,command}:{run:Run;command?:string}) {
   const [message,setMessage]=useState('');
-  if(run.target_vm_name!=='LAB-KALI') return null;
+  if(run.target_vm_name!=='LAB-KALI') return <p role="status">Este reto necesita acceso a Kali. Solicita al instructor que habilite la máquina para continuar con las evidencias.</p>;
   return <section style={{margin:'1rem 0'}} aria-label="Máquina Kali del ejercicio">
     <h3>Trabaja en Kali · 192.168.146.134</h3>
     {command && <>

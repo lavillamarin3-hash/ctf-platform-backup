@@ -10,27 +10,8 @@
 .learning-points { font-size: 1.7rem; color: var(--ui-link); white-space: nowrap; }
 .learning-points small { display: block; font-size: .75rem; font-weight: 600; color: var(--ui-muted); }
 .learning-summary { padding: .75rem 0; font-size: .85rem; border-top: 1px solid var(--ui-border); }
-.learning-countdown { --clock-color: #55dfc5; position: relative; display: flex; align-items: center; gap: 1.25rem; padding: 1.35rem 1.5rem 1.7rem; margin: 1rem 0; border: 1px solid #2a665e; border-radius: 1rem; color: var(--clock-color); background: radial-gradient(ellipse at top left, #183e3b 0, #102326 48%, #111d29 100%); box-shadow: 0 8px 28px #04151a30; overflow: hidden; }
-.learning-clock-face { width: 4.8rem; height: 4.8rem; border-radius: 50%; padding: 4px; flex: 0 0 auto; }
-.learning-clock-face > span { display: grid; place-items: center; height: 100%; width: 100%; border-radius: 50%; background: #12292d; font-size: 2.3rem; }
-.learning-clock-main { display: flex; flex-direction: column; min-width: 0; }
-.learning-clock-label { font-size: .66rem; letter-spacing: .16em; font-weight: 800; color: #bbd6d8; }
-.learning-clock-digits { display: block; font-size: clamp(2.7rem, 6vw, 4.1rem); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.04em; line-height: 1.18; }
-.learning-clock-digits > span { opacity: .65; padding: 0 .04em; }
-.learning-clock-status { font-size: .76rem; color: #c5d7df; }
-.learning-clock-hints { margin-left: auto; text-align: right; display: flex; flex-direction: column; color: #e4f3f3; }
-.learning-clock-hints > strong { font-size: 1.9rem; font-variant-numeric: tabular-nums; }
-.learning-clock-hints small { font-size: .9rem; color: #acc4cd; }
-.learning-clock-hints > span { font-size: .73rem; color: #acc4cd; }
-.learning-clock-track { position: absolute; bottom: 0; left: 0; height: 5px; width: 100%; background: #ffffff0d; }
-.learning-clock-track > span { display: block; height: 100%; background: var(--clock-color); transition: width 1s linear; }
-.learning-countdown.warning { --clock-color: #ffcb74; border-color: #9a6d33; }
-.learning-countdown.critical { --clock-color: #ff9494; border-color: #bd5a65; }
-.learning-countdown.expired { --clock-color: #aab8d2; border-color: #53637d; }
 .learning-hint-steps { margin: .85rem 0 0; padding-left: 1.4rem; font-size: .88rem; line-height: 1.75; }
 .learning-hint-steps li { padding-left: .25rem; margin-bottom: .55rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 520px) { .learning-countdown { padding: 1rem 1rem 1.4rem; gap: .8rem; flex-wrap: wrap; } .learning-clock-face { width: 3.2rem; height: 3.2rem; } .learning-clock-hints { flex-basis: 100%; flex-direction: row; gap: .6rem; align-items: center; margin-left: 4rem; text-align: left; } .learning-clock-hints > strong { font-size: 1.2rem; } }
-@media (prefers-reduced-motion: reduce) { .learning-clock-track > span { transition: none; } }
 .learning-hints { display: grid; gap: .65rem; margin-top: .5rem; }
 .learning-hints article { padding: .85rem; border: 1px solid var(--ui-border); border-radius: .65rem; background: var(--ui-surface); }
 .learning-hint-heading { font-size: .9rem; }
@@ -39,8 +20,6 @@
 .learning-solution h4 { margin-top: 0; }
 .learning-solution li { margin: .6rem 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .learning-solution pre { max-width: 100%; padding: .8rem; border-radius: .5rem; background: var(--ui-surface-2); white-space: pre-wrap; overflow-wrap: anywhere; }
-.offline-download-options { margin: 1rem 0; padding: 1rem; border: 1px solid var(--ui-border); border-radius: .6rem; }
-.offline-download-options > summary { cursor: pointer; font-weight: 700; }
 @media (max-width: 640px) {
   .learning-panel { padding: .9rem; }
   .learning-hint-heading .secondary-action, .learning-solution .primary-action { width: 100%; }

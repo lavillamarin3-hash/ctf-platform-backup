@@ -1,9 +1,7 @@
 """Prueba PostgreSQL reversible: no persiste usuarios, puntos ni cambios al catálogo."""
 import asyncio
-import io
 import json
 import uuid
-import zipfile
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +15,7 @@ from app.api.challenges import list_challenges
 from app.schemas import SubmissionRequest
 from app.core import now_utc
 from app.services.offline_catalog import configure
+from app.services import offline_runtime
 from app.domain.challenges.offline import CATALOG
 from test_offline import solve
 
@@ -56,12 +55,11 @@ async def main():
                 assert first.workspace_strategy=='offline_case' and first.launch_url is None
                 assert (await runs.start_challenge(code,request,user)).id==first.id
                 public = json.loads((await runs.get_offline_case(first.id,request,user)).body)
-                zipped = await runs.download_offline_case(first.id,request,user)
-                with zipfile.ZipFile(io.BytesIO(zipped.body)) as z: assert z.testzip() is None
+                assert 'files' not in public and 'sha256' not in public
+                public, _ = offline_runtime.case_for(first, code)
                 wrong = json.loads((await runs.answer_offline_case(first.id,runs.OfflineAnswer(value='incorrecta'),request,user)).body)
                 assert not wrong['correct'] and wrong['flag'] is None
                 await denied(lambda:runs.get_offline_case(first.id,request,other),404)
-                await denied(lambda:runs.download_offline_case(first.id,request,other),404)
                 await denied(lambda:runs.start_challenge(code,request,other),403)
                 solved = json.loads((await runs.answer_offline_case(first.id,runs.OfflineAnswer(value=solve(code,public)),request,user)).body)
                 assert solved['correct']

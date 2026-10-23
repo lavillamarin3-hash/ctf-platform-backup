@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Run } from "../../api";
-import { request, session } from "../../services/api/client";
+import { request } from "../../services/api/client";
 import { KaliPanel } from './KaliPanel';
 
-type Bundle = { title: string; brief: string; files: Record<string, string>; sha256: Record<string, string>; kali_command?: string };
+type Bundle = { title: string; brief: string; kali_command?: string };
 
 export function OfflineWorkspace({ run, onClose, onSubmit }: {
   run: Run; onClose: (id: number) => Promise<void>;
@@ -32,33 +32,14 @@ export function OfflineWorkspace({ run, onClose, onSubmit }: {
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo completar la operación."); }
     finally { setBusy(false); }
   }
-  function save(name: string, blob: Blob) {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
   return <section className="glass-panel" style={{ padding: "1.25rem" }} aria-label="Ejercicio de análisis en Kali">
     <span className="eyebrow accent">ANÁLISIS EN KALI · CORRIDA {run.id}</span>
     <h3>{bundle?.title ?? "Preparando archivos…"}</h3>
     <p>Disponible hasta {new Date(run.expires_at).toLocaleString()}. {expired && "La corrida caducó. Ciérrala para iniciar otra."}</p>
     {bundle && <>
       <p>{bundle.brief}</p>
-      <p>Prepara las evidencias en Kali y utiliza su terminal o escritorio para analizarlas. El comando de transferencia solo coloca los archivos; debes investigar y construir tu respuesta.</p>
+      <p>Analiza las evidencias desde Kali. Prepara tu carpeta de trabajo con el comando de la terminal y consulta las pistas del reto cuando necesites orientación.</p>
       {!expired && <KaliPanel run={run} command={bundle.kali_command} />}
-      <details className="offline-download-options"><summary>Alternativa: archivos para trabajar localmente</summary>
-      <p>También puedes descargar este ejercicio de lógica. Conserva los bytes originales para verificar los hashes.</p>
-      <button className="primary-action" disabled={busy || expired} onClick={() => void perform(async () => {
-        const response = await fetch(`/api/v1/runs/${run.id}/offline/download`, { headers: { Authorization: `Bearer ${session.get() ?? ""}` } });
-        if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || "No se pudo descargar el ZIP."); }
-        save(`${run.challenge_code}-${run.id}.zip`, await response.blob());
-      })}>Descargar ejercicio completo (.zip)</button>
-      <details className="challenge-accordion"><summary>Archivos e integridad SHA-256</summary>
-        {Object.entries(bundle.files).map(([name, content]) => <div key={name} style={{ padding: "0.75rem", overflowWrap: "anywhere" }}>
-          <button className="secondary-action" disabled={expired} onClick={() => save(name.split("/").pop()!, new Blob([Uint8Array.from(atob(content), c => c.charCodeAt(0))]))}>{name}</button>
-          <small style={{ display: "block" }}>{bundle.sha256[name]}</small>
-        </div>)}
-      </details>
-      </details>
       <form onSubmit={event => { event.preventDefault(); void perform(async () => {
         setFlag("");
         const result = await request<{flag: string | null; message: string}>(`/runs/${run.id}/offline/answer`, { method: "POST", body: JSON.stringify({ value: answer }) });

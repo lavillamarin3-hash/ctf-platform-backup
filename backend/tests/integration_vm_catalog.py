@@ -14,7 +14,7 @@ from app.db import make_session_factory
 from app.models import User, StudentGroup, GroupMembership
 from app.guacamole import make_guacamole_admin
 from app.services.vm_catalog import configure
-from app.services import ssh_practice
+from app.services import ssh_practice, offline_runtime
 from app.api import runs, terminal
 from app.schemas import SubmissionRequest
 from test_offline import solve
@@ -84,7 +84,9 @@ async def main():
                     bundle=json.loads((await endpoint(run.id,request,user)).body)
                     # No escribir artefactos de prueba en la cuenta compartida: verificar comando y contenidos en memoria.
                     assert 'python3 -c' in bundle['kali_command']
+                    assert 'files' not in bundle and 'sha256' not in bundle
                     if code!='DFIR-01':
+                        bundle, _ = offline_runtime.case_for(run, code)
                         result=json.loads((await runs.answer_offline_case(run.id,runs.OfflineAnswer(value=solve(code,bundle)),request,user)).body)
                         assert result['correct']
                     await runs.close_run(run.id,request,user)

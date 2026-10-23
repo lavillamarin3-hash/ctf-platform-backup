@@ -27,6 +27,7 @@
 @import "./styles/19-learning.css";
 @import "./styles/20-challenge-deletion.css";
 @import "./styles/21-external-web.css";
+@import "./styles/22-challenge-clock.css";
 
 /* Tailwind se procesa después de los módulos base. */
 @tailwind base;

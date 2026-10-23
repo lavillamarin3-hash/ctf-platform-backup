@@ -479,7 +479,7 @@ export function ChallengeForm({
             <select value={primaryAsset} onChange={(event) => setPrimaryAsset(event.target.value)} required>
               <option value="">Selecciona un activo…</option>
               {code === "DFIR-01" && <option value="DFIR-CASE">DFIR-CASE · Expediente forense virtual</option>}
-              <option value="OFFLINE-CASE">OFFLINE-CASE · Ejercicio descargable</option>
+              <option value="OFFLINE-CASE">OFFLINE-CASE · Análisis de evidencias en Kali</option>
               {assetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
             <small className="field-help">La VM seleccionada determina IP, protocolo y conexión Guacamole cuando el jugador inicia el reto.</small>

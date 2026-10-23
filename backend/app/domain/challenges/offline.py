@@ -169,7 +169,7 @@ def build_case(code, seed):
         js('processes.json', [{'PID': pid+1, 'path': 'C:\\Windows\\System32\\svchost.exe'}, {'PID': pid, 'path': 'C:\\Users\\Public\\update.exe'}])
     else:
         raise ValueError('Familia no implementada')
-    add('README.txt', f'{code} · {title}\n\n{brief}\n\nDatos sintéticos. Trabaja localmente; no necesitas contactar ningún host. Python 3 permite analizar JSON, bytes y codificaciones. Para PNG/PCAP puedes usar un visor o analizador local.\nVuelve a la plataforma, valida tu respuesta y pulsa Registrar puntos. Los archivos y la respuesta cambian al iniciar otra corrida.\n')
+    add('README.txt', f'{code} · {title}\n\n{brief}\n\nDatos sintéticos. Analiza estas evidencias dentro de Kali y consulta las pistas del reto. Python 3 permite analizar JSON, bytes y codificaciones. Para PNG/PCAP puedes usar un visor o analizador local.\nVuelve a la plataforma, valida tu respuesta y pulsa Registrar puntos. Los archivos y la respuesta cambian al iniciar otra corrida.\n')
     files = {name: base64.b64encode(data).decode() for name, data in raw.items()}
     return {'title': title, 'brief': brief, 'files': files, 'encoding': 'base64', 'sha256': {name: hashlib.sha256(data).hexdigest() for name, data in raw.items()}}, answer
 

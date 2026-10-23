@@ -5,8 +5,7 @@ import { KaliPanel } from './KaliPanel';
 
 type Bundle = {
   title: string; brief: string; clock_notes: string;
-  calibration: Array<{reference_utc: string; auth_clock: string; http_clock: string}>;
-  files: Record<string, string>; sha256: Record<string, string>; kali_command?: string;
+  kali_command?: string;
 };
 const fields = [
   ["session", "Sesión"], ["user", "Usuario"], ["request", "Solicitud HTTP"],
@@ -37,30 +36,14 @@ export function DfirWorkspace({ run, onClose, onSubmit }: {
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo completar la operación."); }
     finally { setBusy(false); }
   }
-  function download(name: string, content: string) {
-    const url = URL.createObjectURL(new Blob([content], {type: "application/json;charset=utf-8"}));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
   return <section className="glass-panel" style={{padding: "1.25rem"}} aria-label="Expediente forense">
     <span className="eyebrow accent">EXPEDIENTE · CORRIDA {run.id}</span>
     <h3>{bundle?.title ?? "Preparando expediente…"}</h3>
     <p>Disponible hasta {new Date(run.expires_at).toLocaleString()}. {expired && "La corrida ha caducado; ciérrala para iniciar otra."}</p>
     {bundle && <>
       <p>{bundle.brief}</p><p>{bundle.clock_notes}</p>
+      <p>Investiga los registros y la calibración de relojes en Kali. El expediente completo se conserva en tu carpeta de la corrida; consulta las pistas para orientar el análisis.</p>
       {!expired && <KaliPanel run={run} command={bundle.kali_command} />}
-      <details className="challenge-accordion"><summary>Calibración de relojes</summary>
-        <pre style={{overflowX: "auto", padding: "1rem"}}>{JSON.stringify(bundle.calibration, null, 2)}</pre>
-      </details>
-      {Object.entries(bundle.files).map(([name, content]) => <details className="challenge-accordion" key={name}>
-        <summary>{name} · Ver registros</summary>
-        <div style={{padding: "1rem"}}>
-          <button type="button" className="secondary-action" onClick={() => download(name, content)}>Descargar {name}</button>
-          <p style={{overflowWrap: "anywhere"}}>SHA-256: {bundle.sha256[name]}</p>
-          <pre style={{maxHeight: "24rem", overflow: "auto", fontSize: "0.95rem"}}>{content}</pre>
-        </div>
-      </details>)}
-      <button className="secondary-action" onClick={() => download(`DFIR-01-${run.id}.json`, JSON.stringify(bundle, null, 2))}>Descargar expediente completo</button>
       <form onSubmit={event => {
         event.preventDefault();
         void perform(async () => {

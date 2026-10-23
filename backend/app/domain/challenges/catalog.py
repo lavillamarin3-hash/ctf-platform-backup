@@ -76,7 +76,7 @@ SEED_CHALLENGES = [
 DFIR_DRAFT = {
     "code": "DFIR-01", "name": "Correlación forense de incidente",
     "description": "Reconstruye una exportación sospechosa cruzando autenticación, HTTP y red con desfases horarios y falsos positivos.",
-    "instructions": "Inicia el caso y descarga las tres fuentes sintéticas. Verifica sus SHA-256, calcula los desfases con las balizas y correlaciona session/request para identificar la única secuencia que cumple todos los indicadores del expediente. Entrega sesión, usuario, solicitud, destino y hora UTC de autenticación. Valida el análisis, copia o envía la flag y cierra el caso. Puedes usar herramientas locales para analizar los JSON.",
+    "instructions": "Inicia el caso y prepara las tres fuentes sintéticas en la terminal de Kali. Verifica sus SHA-256, calcula los desfases con las balizas y correlaciona session/request para identificar la única secuencia que cumple todos los indicadores del expediente. Entrega sesión, usuario, solicitud, destino y hora UTC de autenticación. Valida el análisis, copia o envía la flag y cierra el caso. Utiliza las herramientas de Kali y las pistas del reto para analizar los JSON.",
     "difficulty": "Avanzado", "category": "FORENSICS", "scenario": "DFIR-01",
     "mitre_technique": "T1078 — Valid Accounts (análisis de evidencias)",
     "asset_references": ["DFIR-CASE"], "points": 500, "is_published": False,

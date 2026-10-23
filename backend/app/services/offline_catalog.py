@@ -6,6 +6,7 @@ from ..domain.challenges.offline import CATALOG
 from ..models import Challenge, ChallengeFlag, ChallengeGroupAssignment, StudentGroup
 from .bootstrap import write_audit
 from .challenge_deletion import deleted_codes
+from .kali_instructions import update_text
 
 VERSION = 'OFFLINE-V1'
 
@@ -43,10 +44,10 @@ async def configure(session, group_code):
                 flag.is_active = False
             session.add(ChallengeFlag(challenge_id=challenge.id, label='Respuesta local por corrida', mode='dynamic', template='FLAG{offline_{{RAND}}}', flag_order=max((f.flag_order for f in challenge.flags), default=0)+1, is_active=True))
             challenge.name = title
-            challenge.description = 'Ejercicio descargable con datos sintéticos. ' + objective
-            challenge.instructions = ('Inicia una corrida y descarga el ZIP. Extrae los archivos y lee README.txt. ' + objective
+            challenge.description = 'Ejercicio de análisis en Kali con datos sintéticos. ' + objective
+            challenge.instructions = update_text('Inicia una corrida y descarga el ZIP. Extrae los archivos y lee README.txt. ' + objective
                 + ' Usa herramientas locales; no necesitas una VM ni contactar hosts. Valida la respuesta en el formulario, pulsa Registrar puntos y cierra el ejercicio. Consulta el contador del reto para conocer el plazo configurado. Otra corrida genera nuevos datos y conserva el plazo y las ayudas originales. Los puntos se conceden una sola vez por reto.')
-            challenge.asset_references = ['OFFLINE-CASE']
+            challenge.asset_references = ['OFFLINE-CASE', 'LAB-KALI']
             challenge.scenario = VERSION
             challenge.difficulty = 'Medio' if kind in ('rsa', 'stego', 'validator', 'join', 'lateral', 'pcap', 'stack') else 'Básico'
         report.append({'code': code, 'name': challenge.name, 'mode': 'offline_case'})

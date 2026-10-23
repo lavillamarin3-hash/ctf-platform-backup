@@ -1,5 +1,20 @@
 # Cociber CTF — Entrenamiento en Ciberseguridad
 
+## Despliegue de producción
+
+Este repositorio prepara la plataforma para **Ubuntu Server 26.04** con las bases
+de datos instaladas de forma nativa en una máquina virtual independiente:
+
+| Máquina | Dirección | Función |
+| --- | --- | --- |
+| Servidor web | `10.10.10.13/24` | Docker Compose: interfaz web/Nginx y API FastAPI. |
+| `LAB-DB-POSTGRES` | `10.10.10.14` | PostgreSQL en `5432` y Redis en `6379`, instalados de forma nativa. |
+| Apache Guacamole | Configuración existente | Servicio y base de datos independientes; se conservan. |
+
+Empieza por la [guía de instalación paso a paso](./README-SETUP.md). Para una
+plataforma que ya funciona, utiliza la [guía sencilla de actualización desde
+GitHub](./GUIA_ACTUALIZAR_PRODUCCION.md), que incluye comprobación y recuperación.
+
 ## Descripción
 
 Cociber CTF es una plataforma web de entrenamiento en ciberseguridad con experiencia estilo CTF
@@ -132,30 +147,48 @@ detección del laboratorio.
 | Backend | Python + FastAPI |
 | Frontend | React + TypeScript + TailwindCSS |
 
-La ejecución local utiliza Docker Compose para levantar la aplicación y sus
-servicios de soporte definidos por el proyecto.
+Docker Compose construye el backend y el frontend, con sus dependencias dentro
+de las imágenes. PostgreSQL y Redis se consumen desde `LAB-DB-POSTGRES`; este
+Compose no crea bases de datos ni administra Apache Guacamole.
 
 ## Ejecución general
 
 ### Requisitos
 
-- Docker y Docker Compose.
-- Un archivo de configuración basado en [`.env.example`](./.env.example).
+- Docker Engine y Docker Compose en el servidor web.
+- Un archivo privado `.env`, basado en [`.env.example`](./.env.example).
+- Acceso de red a las bases de datos externas, cuentas de aplicación y una base
+  CTF con el esquema compatible y usuarios ya preparados.
 
 ### Inicio
 
-1. Copia `.env.example` como `.env`.
-2. Configura en `.env` las contraseñas y secretos del entorno.
-3. Ejecuta:
+1. En una instalación nueva, copia `.env.example` como `.env`. En una
+   actualización, conserva el `.env` existente y sus secretos.
+2. Configura las credenciales reales de PostgreSQL y Redis en `10.10.10.14`.
+   Conserva los valores operativos de `GUACAMOLE_*` y del inyector SSH.
+3. Desde la carpeta del proyecto, ejecuta cada comando por separado. Si uno
+   falla, resuelve el error antes de continuar:
 
    ```bash
-   docker compose up --build
+   sudo docker compose config --quiet
+   sudo docker compose build api web
+   sudo docker compose run --rm --no-deps api python -m app.check_services
+   sudo docker compose up -d --force-recreate --wait --wait-timeout 180 api web
+   sudo docker compose ps
    ```
 
-4. Abre `http://localhost:8081` (o el puerto definido mediante `WEB_PORT`).
+4. Abre `http://10.10.10.13` con la configuración de ejemplo. Si existe un proxy
+   HTTPS o se utiliza otro puerto, abre la dirección real y configura
+   `PUBLIC_ORIGIN` exactamente igual, sin barra final.
 
-La documentación interactiva de la API está disponible en `/docs` cuando el
-servicio está en ejecución.
+El backend comprueba lectura de la tabla `users` en PostgreSQL, `PING` en Redis
+y su respuesta HTTP antes de que arranque el frontend. Esta comprobación no
+sustituye probar el inicio de sesión, los retos y Guacamole. El puerto `8000`
+queda dentro de la red Docker; el proxy web publica `/api/` y no publica `/docs`.
+
+En producción, Compose fuerza `MANAGE_SCHEMA_ON_STARTUP=false` y
+`CTF_SEED_DEMO_DATA=false`: no crea tablas, usuarios ni datos de demostración al
+iniciar. Una base vacía necesita preparación o migración antes del despliegue.
 
 ## Relación con el laboratorio
 
@@ -166,6 +199,8 @@ deben limitarse a los escenarios y activos autorizados por el instructor.
 
 ## Documentación adicional
 
+- [Instalación y configuración en Ubuntu Server 26.04](./README-SETUP.md)
+- [Actualizar producción desde GitHub, paso a paso](./GUIA_ACTUALIZAR_PRODUCCION.md)
 - [Configuración de entorno](./.env.example)
 - [Backend](./backend/)
 - [Frontend](./frontend/)
@@ -173,7 +208,7 @@ deben limitarse a los escenarios y activos autorizados por el instructor.
 - [Retos de investigación con Kali y LNX-VICT](./Docs/RETOS_VM_LOGICA.md)
 - [Resolver Operación Cóndor en la demostración local](./Docs/GUIA_OPERACION_CONDOR.md)
 - [Eliminar un reto definitivamente](./Docs/ELIMINAR_RETOS.md)
-- Documentación interactiva de la API: `/docs` con la aplicación ejecutándose
+- Documentación interactiva de la API: `/docs` en la API interna; no se expone por el proxy de producción.
 
 
 ## Fase A — banderas dinámicas

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Run } from '../../api';
 import { request } from '../../services/api/client';
 import { remainingLearningPoints } from '../../lib/learningPolicy';
+import { ChallengeClock } from './ChallengeClock';
 
 type Hint = { id: number; title: string; unlocked: boolean; content?: string; penalty_percent?: number };
 type Solution = { steps: string[]; answer: string | null; note?: string };
@@ -80,13 +81,8 @@ export function LearningPanel({ run, completed, onComplete }: {
       .finally(() => { if (generation.current === current) automaticSolutionPending.current = false; });
   }, [run?.id, data, solutionAvailable, solution, revealSolution]);
 
-  const minutes = remaining === null ? '--' : String(Math.floor(remaining / 60)).padStart(2, '0');
-  const seconds = remaining === null ? '--' : String(remaining % 60).padStart(2, '0');
   const expiredPointsPercent = data?.expired_points_percent ?? 25;
   const hintCount = data?.hint_count ?? data?.hints.length ?? 3;
-  const totalSeconds = Math.max(1, (data?.duration_minutes ?? 60) * 60);
-  const remainingPercent = Math.max(0, Math.min(100, ((remaining ?? 0) / totalSeconds) * 100));
-  const urgency = expired ? 'expired' : (remaining ?? Infinity) <= 60 ? 'critical' : (remaining ?? Infinity) <= 300 ? 'warning' : 'normal';
   const reviewPoints = data ? (expired ? remainingLearningPoints(data.base_points, expiredPointsPercent) : data.available_points) : 0;
   return <section className="learning-panel" aria-label="Puntaje, tiempo y ayudas del reto">
     <div className="learning-panel-heading">
@@ -96,15 +92,8 @@ export function LearningPanel({ run, completed, onComplete }: {
     <p>Investiga primero en la máquina virtual. Cada pista desbloquea una etapa guiada y aplica su descuento. La solución aparece al consultar todas las pistas o al agotar el tiempo. {data ? `Después del plazo queda el ${expiredPointsPercent}% del puntaje base. ` : ''}Cerrar o reabrir conserva las ayudas y el plazo.</p>
     {!run && <p className="field-help">Inicia el laboratorio para activar el tiempo y consultar tus pistas.</p>}
     {data && <>
-      <div className={`learning-countdown ${urgency}`}>
-        <div className="learning-clock-face" aria-hidden="true" style={{ background: `conic-gradient(currentColor ${remainingPercent}%, transparent 0)` }}><span>◷</span></div>
-        <div className="learning-clock-main"><span className="learning-clock-label">{expired ? 'TIEMPO COMPLETADO' : 'TIEMPO RESTANTE'}</span>
-          <strong className="learning-clock-digits" role="timer" aria-live="off" aria-label={`${minutes} minutos y ${seconds} segundos`}>{minutes}<span>:</span>{seconds}</strong>
-          <span className="learning-clock-status" role="status">{expired ? 'Solución disponible · continúa aprendiendo' : urgency === 'critical' ? 'Último minuto' : urgency === 'warning' ? 'Quedan menos de cinco minutos' : 'Investiga · relaciona · comprueba'}</span>
-        </div>
-        <div className="learning-clock-hints"><strong>{data.hints_used}<small> / {hintCount}</small></strong><span>pistas consultadas</span></div>
-        <div className="learning-clock-track" aria-hidden="true"><span style={{ width: `${remainingPercent}%` }} /></div>
-      </div>
+      <ChallengeClock remaining={remaining} durationMinutes={data.duration_minutes ?? 60} expired={expired}
+        hintsUsed={data.hints_used} hintCount={hintCount} />
       {data.completed && <p role="status">Reto completado. Se conservan los {data.awarded_points ?? data.available_points} puntos registrados.</p>}
       <div className="learning-hints">
         {data.hints.map(hint => <article key={hint.id}>

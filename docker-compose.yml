@@ -1,56 +1,57 @@
+# Producción: PostgreSQL y Redis son servicios nativos de LAB-DB-POSTGRES.
+# Apache Guacamole y su base de datos se administran fuera de este Compose.
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ctf_platform}
-      POSTGRES_USER: ${POSTGRES_USER:-ctf_platform}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks: [ctf_internal]
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks: [ctf_internal]
-
   api:
     build: ./backend
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Configure DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?Configure REDIS_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET in .env}
+      FIELD_HMAC_SECRET: ${FIELD_HMAC_SECRET:?Configure FIELD_HMAC_SECRET in .env}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Configure PUBLIC_ORIGIN in .env}
+      # El usuario de ejecución no debe crear tablas ni datos de demostración.
+      MANAGE_SCHEMA_ON_STARTUP: "false"
+      CTF_SEED_DEMO_DATA: "false"
+    restart: unless-stopped
+    init: true
     expose:
       - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.check_services", "--http"]
+      interval: 30s
+      timeout: 20s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks: [ctf_internal]
 
   web:
     build: ./frontend
+    restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
-      - "${WEB_PORT:-8081}:80"
+      - "${WEB_BIND_IP:-10.10.10.13}:${WEB_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks: [ctf_internal]
-
-volumes:
-  postgres_data:
-  redis_data:
 
 networks:
   ctf_internal:
+    # No usar internal:true: la API necesita alcanzar 10.10.10.14 y Guacamole.
     driver: bridge
 

@@ -968,22 +968,14 @@ async def get_offline_case(run_id: int, request: Request, user=Depends(require_r
     async with request.app.state.session_factory() as session:
         run, challenge = await _offline_run(session, run_id, user)
         bundle, _ = offline_runtime.case_for(run, challenge.code)
+        view = {key: bundle[key] for key in ('title', 'brief')}
         if 'LAB-KALI' in challenge.asset_references:
             import base64
-            bundle['kali_command']=kali_workspace.transfer_command(run,{name:base64.b64decode(data) for name,data in bundle['files'].items()})
+            files = {name: base64.b64decode(data) for name, data in bundle['files'].items()}
+            files['SHA256SUMS.txt'] = '\n'.join(f'{digest}  {name}' for name, digest in bundle['sha256'].items()) + '\n'
+            view['kali_command'] = kali_workspace.transfer_command(run, files)
         from fastapi.responses import JSONResponse
-        return JSONResponse(bundle, headers={"Cache-Control": "no-store"})
-
-
-@router.get("/api/v1/runs/{run_id}/offline/download")
-async def download_offline_case(run_id: int, request: Request, user=Depends(require_roles("player"))):
-    async with request.app.state.session_factory() as session:
-        run, challenge = await _offline_run(session, run_id, user)
-        bundle, _ = offline_runtime.case_for(run, challenge.code)
-        from fastapi.responses import Response
-        return Response(offline.archive(bundle), media_type="application/zip", headers={
-            "Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="exercise-{run.id}.zip"',
-        })
+        return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/v1/runs/{run_id}/offline/answer")
@@ -1026,12 +1018,14 @@ async def get_dfir_case(run_id: int, request: Request, user=Depends(require_role
     async with request.app.state.session_factory() as session:
         run = await _dfir_run(session, run_id, user)
         bundle, _ = dfir_runtime.case_for(run)
+        view = {key: bundle[key] for key in ('title', 'brief', 'clock_notes')}
         challenge=await session.get(Challenge,run.challenge_id)
         if 'LAB-KALI' in challenge.asset_references:
             import json
-            bundle['kali_command']=kali_workspace.transfer_command(run,{**bundle['files'],'case.json':json.dumps(bundle,ensure_ascii=False)})
+            view['kali_command']=kali_workspace.transfer_command(run,{**bundle['files'],'case.json':json.dumps(bundle,ensure_ascii=False),
+                'SHA256SUMS.txt': '\n'.join(f'{digest}  {name}' for name, digest in bundle['sha256'].items()) + '\n'})
         from fastapi.responses import JSONResponse
-        return JSONResponse(bundle, headers={"Cache-Control": "no-store"})
+        return JSONResponse(view, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/v1/runs/{run_id}/dfir/answer")
